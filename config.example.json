@@ -1,0 +1,23 @@
+{
+  "_meta": "config.example.json | Codex for Claude Opus 5.5 | 2026-11-17 | WO-CORE-00 debug defaults; set credentials via environment. Round 8 (R42.7): Redis lease keys gain AUTH via POOLS_REDIS_USER / POOLS_REDIS_PASSWORD (never stored here, never logged), logical DB leaseRedisDB and wire key prefix leaseRedisPrefix. R15 (AT22-GM2-3): the resource caps maxProcs, memLimitMB, workerPool and dbMaxOpenConns; 0 means auto (NumCPU-1, 75 % of the memory the process may plan for, NumCPU-1, the machine default). R15-FIX-CAPS: memLimitMB is a SOFT GC target (GOMEMLIMIT), not a hard RSS cap; the automatic value is 75 % of the smaller of the cgroup budget and the physical RAM.",
+  "addr": "127.0.0.1:8091",
+  "debug": true,
+  "database": "data/pools.db",
+  "driver": "sqlite",
+  "logDir": "logs",
+  "serverId": "s1",
+  "leaseSeconds": 60,
+  "leaseRedisDB": 0,
+  "leaseRedisPrefix": "pools:",
+  "webhooksEnabled": true,
+  "gpuEnabled": true,
+  "maxGpuSlotsPerTab": 2,
+  "gpuOnBatteryAllowed": false,
+  "webhookAllowPrivateIPs": false,
+  "runOrigin": "",
+  "trustedProxyCIDRs": [],
+  "maxProcs": 0,
+  "memLimitMB": 0,
+  "workerPool": 0,
+  "dbMaxOpenConns": 0
+}

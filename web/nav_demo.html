@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- WO-HC-NAV-01 nav_demo.html - Side-by-side Navigation Demo (roles [] vs ['admin']) -->
+  <!-- Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17 -->
+  <!-- Truth: F:/tmp/hcwork/ctx_rows_R37_R40.md (R38.2, R38.3, R38.5) + design doc sec 3/4/14 -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCGSC Shared Navigation Bar Demo</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card-bg: #1e293b;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+      --nav-bg: #111827;
+      --nav-border: #334155;
+      --link-hover: #38bdf8;
+      --active-page: #38bdf8;
+      --active-host-bg: rgba(56, 189, 248, 0.15);
+      --badge-pub: #10b981;
+      --badge-admin: #f59e0b;
+      --border-rad: 8px;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-main);
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    header {
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--nav-border);
+      padding-bottom: 16px;
+    }
+    header h1 { font-size: 1.6rem; color: #fff; margin-bottom: 6px; }
+    header p { color: var(--text-muted); font-size: 0.95rem; }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 24px;
+      margin-bottom: 32px;
+    }
+
+    @media (max-width: 900px) {
+      .comparison-grid { grid-template-columns: 1fr; }
+    }
+
+    .panel {
+      background: var(--card-bg);
+      border: 1px solid var(--nav-border);
+      border-radius: var(--border-rad);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 10px;
+    }
+
+    .panel-title {
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+
+    .role-badge {
+      font-size: 0.8rem;
+      font-family: monospace;
+      padding: 4px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+    .badge-guest { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+    .badge-admin { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+
+    .panel-meta {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Shared nav bar styling */
+    .ccgsc-nav {
+      background: var(--nav-bg);
+      border: 1px solid var(--nav-border);
+      border-radius: 6px;
+      padding: 10px 14px;
+    }
+
+    .ccgsc-nav-list {
+      list-style: none;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      align-items: center;
+    }
+
+    .ccgsc-nav-item {
+      display: inline-block;
+    }
+
+    .ccgsc-nav-link {
+      display: inline-block;
+      color: #cbd5e1;
+      text-decoration: none;
+      font-size: 0.88rem;
+      padding: 6px 12px;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+    }
+
+    .ccgsc-nav-link:hover {
+      color: #fff;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .ccgsc-nav-link:focus-visible {
+      outline: 2px solid var(--link-hover);
+      outline-offset: 2px;
+    }
+
+    /* Highlighted states */
+    .nav-active-page {
+      color: #38bdf8 !important;
+      font-weight: 600;
+      border-color: rgba(56, 189, 248, 0.5);
+      background: var(--active-host-bg);
+    }
+
+    .nav-active-host {
+      border-color: rgba(56, 189, 248, 0.25);
+    }
+
+    .link-legend-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.82rem;
+      margin-top: 10px;
+    }
+    .link-legend-table th, .link-legend-table td {
+      border: 1px solid #334155;
+      padding: 6px 10px;
+      text-align: left;
+    }
+    .link-legend-table th { background: rgba(0, 0, 0, 0.2); color: #cbd5e1; }
+    .link-legend-table td { color: #94a3b8; }
+
+    .interactive-card {
+      background: var(--card-bg);
+      border: 1px solid var(--nav-border);
+      border-radius: var(--border-rad);
+      padding: 20px;
+      margin-top: 24px;
+    }
+    .interactive-card h2 { font-size: 1.15rem; margin-bottom: 12px; }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    .control-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.9rem;
+    }
+    select {
+      background: #111827;
+      color: #fff;
+      border: 1px solid #475569;
+      padding: 6px 10px;
+      border-radius: 4px;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <h1>CCGSC Shared Navigation Bar Demo</h1>
+    <p>WO-HC-NAV-01: Zero cookies/storage, absolute URLs, accessible WAI-ARIA keyboard navigation, role-filtered.</p>
+  </header>
+
+  <main>
+    <div class="comparison-grid">
+      <!-- PANEL A: ROLES = [] -->
+      <section class="panel" aria-labelledby="heading-guest">
+        <div class="panel-header">
+          <h2 id="heading-guest" class="panel-title">1. Public State</h2>
+          <span class="role-badge badge-guest">roles = []</span>
+        </div>
+        <p class="panel-meta">Unauthenticated visitor / volunteer. Public links are always rendered; private administrative, director, and portal links remain hidden.</p>
+
+        <!-- Container for roles: [] -->
+        <div id="nav-container-guest" aria-label="Guest navigation view"></div>
+
+        <div>
+          <h3 style="font-size: 0.9rem; margin-bottom: 6px; color: #cbd5e1;">Rendered Public Links</h3>
+          <table class="link-legend-table">
+            <thead>
+              <tr><th>Label</th><th>Host</th><th>Legend / Description</th></tr>
+            </thead>
+            <tbody id="table-guest"></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- PANEL B: ROLES = ['admin'] -->
+      <section class="panel" aria-labelledby="heading-admin">
+        <div class="panel-header">
+          <h2 id="heading-admin" class="panel-title">2. Admin State</h2>
+          <span class="role-badge badge-admin">roles = ['admin']</span>
+        </div>
+        <p class="panel-meta">Logged-in administrator. Public links + all 8 pool administration pages on <code>ccgsc-director.digitalbd.org</code> are accessible.</p>
+
+        <!-- Container for roles: ['admin'] -->
+        <div id="nav-container-admin" aria-label="Admin navigation view"></div>
+
+        <div>
+          <h3 style="font-size: 0.9rem; margin-bottom: 6px; color: #cbd5e1;">Rendered Admin & Public Links</h3>
+          <table class="link-legend-table">
+            <thead>
+              <tr><th>Label</th><th>Visibility</th><th>Legend / Description</th></tr>
+            </thead>
+            <tbody id="table-admin"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+
+    <!-- Interactive Tester -->
+    <section class="interactive-card">
+      <h2>Interactive Nav Sandbox</h2>
+      <div class="controls">
+        <span style="font-weight: 600; font-size: 0.9rem;">Toggle Active Roles:</span>
+        <label class="control-group"><input type="checkbox" id="role-admin" checked> admin</label>
+        <label class="control-group"><input type="checkbox" id="role-director"> director</label>
+        <label class="control-group"><input type="checkbox" id="role-contributor"> contributor</label>
+        <label class="control-group"><input type="checkbox" id="role-developer"> developer</label>
+        
+        <span style="margin-left: 12px; font-weight: 600; font-size: 0.9rem;">Simulate Host:</span>
+        <select id="select-host">
+          <option value="ccgsc-director.digitalbd.org" selected>ccgsc-director.digitalbd.org</option>
+          <option value="ccgsc.digitalbd.org">ccgsc.digitalbd.org</option>
+          <option value="ccgsc-demo.digitalbd.org">ccgsc-demo.digitalbd.org</option>
+          <option value="ccgsc-dev.digitalbd.org">ccgsc-dev.digitalbd.org</option>
+        </select>
+      </div>
+      <div id="nav-container-interactive"></div>
+    </section>
+  </main>
+
+  <script type="module">
+    // WO-HC-NAV-01 nav_demo.html controller logic
+    import { filterNavLinks, renderNav } from './nav.js';
+
+    // Static fallback links to guarantee offline demo functionality without network
+    const fallbackLinks = [
+      { id: "public-info", label: "Public Info", href: "https://ccgsc.digitalbd.org/", host: "ccgsc.digitalbd.org", visibility: "public", group: "general", legend: "Main CCGSC public overview and general system information" },
+      { id: "contribute-worker", label: "Contribute (Worker)", href: "https://ccgsc-demo.digitalbd.org/", host: "ccgsc-demo.digitalbd.org", visibility: "public", group: "compute", legend: "Volunteer browser compute worker page for CCGSC grid" },
+      { id: "contributor-pool", label: "Contributor Pool", href: "https://ccgsc-demo.digitalbd.org/pools/contribute.html", host: "ccgsc-demo.digitalbd.org", visibility: "contributor", group: "compute", legend: "wwHost tab registration and device execution limit controls" },
+      { id: "developer-portal", label: "Developer Portal", href: "https://ccgsc-dev.digitalbd.org/", host: "ccgsc-dev.digitalbd.org", visibility: "public", group: "developer", legend: "Developer API documentation and language idiom reference" },
+      { id: "developer-keys", label: "API Keys & Metering", href: "https://ccgsc-dev.digitalbd.org/keys", host: "ccgsc-dev.digitalbd.org", visibility: "developer", group: "developer", legend: "Developer API keys, quota management, and job submission telemetry" },
+      { id: "pools-monitor", label: "Monitor", href: "https://ccgsc-director.digitalbd.org/pools/monitor.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "Brief combined live health overview of both pools and both APIs" },
+      { id: "pool-monitor", label: "Pool Monitor", href: "https://ccgsc-director.digitalbd.org/pools/pool-monitor.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "Medium tier dashboard for Web Thread Pool and Web Process Pool status" },
+      { id: "api-monitor", label: "API Monitor", href: "https://ccgsc-director.digitalbd.org/pools/api-monitor.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "Medium tier dashboard for Thread and Process Pool REST APIs and quotas" },
+      { id: "thread-pool-admin", label: "Thread Pool Admin", href: "https://ccgsc-director.digitalbd.org/pools/thread-pool-admin.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "Web Thread Pool detailed controls, worker limits, and tamper verification" },
+      { id: "process-pool-admin", label: "Process Pool Admin", href: "https://ccgsc-director.digitalbd.org/pools/process-pool-admin.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "Web Process Pool (wwHost) detailed controls, sessions, and device guards" },
+      { id: "thread-api-admin", label: "Thread API Admin", href: "https://ccgsc-director.digitalbd.org/pools/thread-api-admin.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "API key permissions, quotas, and metering for /thread-pool/v1" },
+      { id: "process-api-admin", label: "Process API Admin", href: "https://ccgsc-director.digitalbd.org/pools/process-api-admin.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "API key permissions, quotas, and session settings for /process-pool/v1" },
+      { id: "manual", label: "Manual", href: "https://ccgsc-director.digitalbd.org/pools/manual/index.html", host: "ccgsc-director.digitalbd.org", visibility: "admin", group: "pools-admin", legend: "Configuration manual and reference documentation for all pool admin pages" },
+      { id: "director-dashboards", label: "Director Apps", href: "https://ccgsc-director.digitalbd.org/director/", host: "ccgsc-director.digitalbd.org", visibility: "director", group: "director", legend: "Matrix, SSPrime, and IsPrime server application director dashboards" }
+    ];
+
+    async function loadLinks() {
+      try {
+        const res = await fetch('nav.json');
+        if (!res.ok) throw new Error();
+        const data = await res.json();
+        return Array.isArray(data) ? data : (data.links || fallbackLinks);
+      } catch (err) {
+        return fallbackLinks;
+      }
+    }
+
+    function populateTable(tbodyId, links) {
+      const tbody = document.getElementById(tbodyId);
+      tbody.innerHTML = '';
+      for (const item of links) {
+        const row = document.createElement('tr');
+        row.innerHTML = `<td><strong>${item.label}</strong></td><td><code>${item.visibility || item.host}</code></td><td>${item.legend || '-'}</td>`;
+        tbody.appendChild(row);
+      }
+    }
+
+    async function initDemo() {
+      const links = await loadLinks();
+
+      // Render Guest Nav (roles: [])
+      const guestContainer = document.getElementById('nav-container-guest');
+      renderNav(guestContainer, links, {
+        roles: [],
+        currentHost: 'ccgsc.digitalbd.org',
+        currentUrl: 'https://ccgsc.digitalbd.org/'
+      });
+      populateTable('table-guest', filterNavLinks(links, []));
+
+      // Render Admin Nav (roles: ['admin'])
+      const adminContainer = document.getElementById('nav-container-admin');
+      renderNav(adminContainer, links, {
+        roles: ['admin'],
+        currentHost: 'ccgsc-director.digitalbd.org',
+        currentUrl: 'https://ccgsc-director.digitalbd.org/pools/monitor.html'
+      });
+      populateTable('table-admin', filterNavLinks(links, ['admin']));
+
+      // Interactive Simulator
+      function updateInteractive() {
+        const roles = [];
+        if (document.getElementById('role-admin').checked) roles.push('admin');
+        if (document.getElementById('role-director').checked) roles.push('director');
+        if (document.getElementById('role-contributor').checked) roles.push('contributor');
+        if (document.getElementById('role-developer').checked) roles.push('developer');
+
+        const host = document.getElementById('select-host').value;
+        const target = document.getElementById('nav-container-interactive');
+        renderNav(target, links, {
+          roles: roles,
+          currentHost: host,
+          currentUrl: `https://${host}/`
+        });
+      }
+
+      ['role-admin', 'role-director', 'role-contributor', 'role-developer'].forEach(id => {
+        document.getElementById(id).addEventListener('change', updateInteractive);
+      });
+      document.getElementById('select-host').addEventListener('change', updateInteractive);
+
+      updateInteractive();
+    }
+
+    initDemo();
+  </script>
+</body>
+</html>
+<!-- END OF nav_demo.html -->

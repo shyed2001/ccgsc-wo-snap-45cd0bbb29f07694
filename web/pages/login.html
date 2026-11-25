@@ -1,0 +1,249 @@
+<!-- WO_FIX_C_ADMIN_AUTH login.html - Admin Session Login -->
+<!-- Author: Codex for Claude Opus 5.5 | 2026-11-18 -->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCGSC - Admin Login</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .login-wrapper {
+      max-width: 440px;
+      margin: 60px auto;
+      padding: 32px;
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+    }
+    .login-header {
+      margin-bottom: 24px;
+      text-align: center;
+    }
+    .login-header h1 {
+      font-size: 1.5rem;
+      color: var(--text-main);
+      margin-bottom: 8px;
+    }
+    .login-header p {
+      font-size: 0.875rem;
+      color: var(--text-muted);
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    .form-group label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 0.875rem;
+      color: var(--text-main);
+      font-weight: 500;
+    }
+    .form-group input {
+      width: 100%;
+      padding: 10px 14px;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      color: var(--text-main);
+      font-size: 0.95rem;
+    }
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--border-focus);
+    }
+    .error-banner {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--danger);
+      color: #fca5a5;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+      margin-bottom: 20px;
+    }
+    .success-banner {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid var(--success);
+      color: #6ee7b7;
+      padding: 12px;
+      border-radius: var(--radius-sm);
+      font-size: 0.875rem;
+      margin-bottom: 20px;
+    }
+    .submit-btn {
+      width: 100%;
+      padding: 12px;
+      background: var(--accent);
+      color: #0b0f19;
+      font-weight: 600;
+      border: none;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 1rem;
+      transition: background-color 0.2s;
+    }
+    .submit-btn:hover {
+      background: var(--accent-hover);
+    }
+    .hidden {
+      display: none !important;
+    }
+  </style>
+</head>
+<body>
+  <div id="ccgsc-nav"></div>
+
+  <main id="main-content">
+    <div class="login-wrapper">
+      <div class="login-header">
+        <h1>CCGSC Admin Login</h1>
+        <p>Store A administrative session authentication (admin / director)</p>
+      </div>
+
+      <div id="error-msg" class="error-banner hidden" role="alert"></div>
+      <div id="success-msg" class="success-banner hidden" role="status"></div>
+
+      <!-- Login Form -->
+      <form id="login-form" method="POST" action="/pools/auth/login">
+        <input type="hidden" name="csrf_token" id="csrf_token" value="">
+        <div class="form-group">
+          <label for="username">Username</label>
+          <input type="text" id="username" name="username" required autocomplete="username" autofocus>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" name="password" required autocomplete="current-password">
+        </div>
+        <button type="submit" id="login-btn" class="submit-btn">Log In</button>
+      </form>
+
+      <!-- Forced Password Change Form -->
+      <form id="change-pwd-form" class="hidden" method="POST" action="/pools/auth/change-password">
+        <div class="form-group">
+          <label for="new_password">New Password</label>
+          <input type="password" id="new_password" name="new_password" required autocomplete="new-password">
+        </div>
+        <div class="form-group">
+          <label for="confirm_password">Confirm New Password</label>
+          <input type="password" id="confirm_password" name="confirm_password" required autocomplete="new-password">
+        </div>
+        <button type="submit" id="change-pwd-btn" class="submit-btn">Update Password & Continue</button>
+      </form>
+    </div>
+  </main>
+
+  <script type="module" src="/nav/nav.js"></script>
+  <script>
+    (function() {
+      const errorEl = document.getElementById('error-msg');
+      const successEl = document.getElementById('success-msg');
+      const csrfInput = document.getElementById('csrf_token');
+      const loginForm = document.getElementById('login-form');
+      const changeForm = document.getElementById('change-pwd-form');
+
+      let currentUsername = '';
+
+      function showError(msg) {
+        errorEl.textContent = msg;
+        errorEl.classList.remove('hidden');
+        successEl.classList.add('hidden');
+      }
+
+      function showSuccess(msg) {
+        successEl.textContent = msg;
+        successEl.classList.remove('hidden');
+        errorEl.classList.add('hidden');
+      }
+
+      // Fetch CSRF token on load
+      fetch('/pools/auth/csrf')
+        .then(r => r.json())
+        .then(d => {
+          if (d && d.csrfToken) {
+            csrfInput.value = d.csrfToken;
+          }
+        })
+        .catch(() => {});
+
+      loginForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        errorEl.classList.add('hidden');
+
+        const username = document.getElementById('username').value.trim();
+        const password = document.getElementById('password').value;
+        const csrfToken = csrfInput.value;
+        currentUsername = username;
+
+        try {
+          const res = await fetch('/pools/auth/login', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({ username, password, csrf_token: csrfToken })
+          });
+
+          if (res.status === 200) {
+            const data = await res.json();
+            if (data.mustChangePassword) {
+              loginForm.classList.add('hidden');
+              changeForm.classList.remove('hidden');
+              showSuccess('First login detected: please set a new password to proceed.');
+              return;
+            }
+            window.location.href = '/pools/monitor.html';
+          } else if (res.status === 401) {
+            showError('Invalid username or password.');
+          } else if (res.status === 403) {
+            showError('Access forbidden: Store A administrative role (admin or director) required.');
+          } else if (res.status === 429) {
+            showError('Too many failed login attempts. Rate limit exceeded, please wait.');
+          } else {
+            showError('Authentication failed with HTTP ' + res.status);
+          }
+        } catch (err) {
+          showError('Network error connecting to login service.');
+        }
+      });
+
+      changeForm.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const newPassword = document.getElementById('new_password').value;
+        const confirmPassword = document.getElementById('confirm_password').value;
+        const csrfToken = csrfInput.value;
+
+        if (newPassword !== confirmPassword) {
+          showError('Passwords do not match.');
+          return;
+        }
+
+        try {
+          const res = await fetch('/pools/auth/change-password', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-CSRF-Token': csrfToken
+            },
+            body: JSON.stringify({
+              username: currentUsername,
+              newPassword: newPassword,
+              csrf_token: csrfToken
+            })
+          });
+
+          if (res.ok) {
+            window.location.href = '/pools/monitor.html';
+          } else {
+            showError('Failed to update password.');
+          }
+        } catch (err) {
+          showError('Network error updating password.');
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
+<!-- END OF login.html -->

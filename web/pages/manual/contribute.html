@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<!-- WO_T3_CONTRIBUTE_PAGE manual/contribute.html - Full Reference Manual for contribute.html -->
+<!-- Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17 -->
+<!-- Truth: WO_T3_CONTRIBUTE_PAGE.md, GRILL_WWPP_R1.md (R29.1, R30.1-3, R31.1-2, R37.1, R39.1) -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual: contribute.html (Contributor Pool Worker)</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- Shared Navigation Bar Mount -->
+  <nav id="nav" class="ccgsc-nav" aria-label="Global CCGSC Navigation">
+    <a href="/web/monitor/" style="margin-right: 1rem; color: #cbd5e1; text-decoration: none;">Monitor</a>
+    <a href="/web/admin/" style="margin-right: 1rem; color: #cbd5e1; text-decoration: none;">Admin</a>
+    <a href="/web/contribute/" style="margin-right: 1rem; color: #38bdf8; font-weight: 600; text-decoration: none;">Contribute</a>
+  </nav>
+
+  <div class="container" style="padding-top: 24px; max-width: 1100px; margin: 0 auto;">
+    <div class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+      <div>
+        <h1 class="page-title" style="font-size: 1.8rem; font-weight: 700; margin-bottom: 6px;">
+          Manual: contribute.html
+          <span class="tier-badge tier-0" style="background: #0284c7; color: white; padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">Contributor Runtime</span>
+        </h1>
+        <p class="page-desc" style="color: var(--text-muted); font-size: 0.95rem;">
+          Architectural specification, security isolation rules, and operational manual for the CCGSC Contributor Pool runtime.
+        </p>
+      </div>
+      <div>
+        <a href="../contribute.html" class="btn btn-primary" style="text-decoration: none;">&larr; Back to Contributor Page</a>
+      </div>
+    </div>
+
+    <!-- Section 1: Overview & Architecture -->
+    <section class="admin-section" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
+      <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px; color: var(--accent);">1. Architecture & Sandbox Isolation (WWPP-R29.1, R39.1)</h2>
+      <p style="color: var(--text-main); margin-bottom: 12px; font-size: 0.92rem; line-height: 1.6;">
+        The contributor pool executes untrusted developer WASM and JavaScript workloads inside an opaque sandbox iframe. The sandbox origin (e.g. <code>ccgsc-run.digitalbd.org</code>) is loaded with <code>sandbox="allow-scripts"</code> without <code>allow-same-origin</code>, producing a null origin.
+      </p>
+      <ul style="color: var(--text-muted); padding-left: 20px; font-size: 0.9rem; line-height: 1.6;">
+        <li><strong>Zero Storage / Zero Cookies:</strong> LocalStorage, IndexedDB, and cookies are blocked in the opaque realm.</li>
+        <li><strong>Single MessageChannel Handshake:</strong> The parent page transfers exactly one <code>MessagePort</code> to the runner via a single bootstrap <code>window.postMessage({type: 'init'})</code>. All subsequent communication is restricted to the port. Window messages are permanently ignored.</li>
+        <li><strong>Byte Transfer:</strong> WASM modules are transferred as raw byte buffers and compiled via <code>WebAssembly.compile</code> inside the runner. No network fetch occurs inside the sandbox.</li>
+      </ul>
+    </section>
+
+    <!-- Section 2: Worker Allocation & Device Guards -->
+    <section class="admin-section" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
+      <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px; color: var(--accent);">2. Worker Allocation & Device Guards (WWPP-R29.4, WWPP-R30.1, WWPP-R30.2, WWPP-R30.3, WWPP-R31.1, WWPP-R31.2)</h2>
+      <p style="color: var(--text-main); margin-bottom: 12px; font-size: 0.92rem; line-height: 1.6;">
+        Device resource consumption is governed by deterministic hardware rules:
+      </p>
+      <ul style="color: var(--text-muted); padding-left: 20px; font-size: 0.9rem; line-height: 1.6;">
+        <li><strong>Desktop / Laptop Auto Rule:</strong> <code>workerCount = max(1, min(4, cores - 1))</code>. Leaves at least 1 core completely free for user responsiveness.</li>
+        <li><strong>Mobile / Phone Auto Rule:</strong> 1 compute worker while running on battery; 2 compute workers when actively charging.</li>
+        <li><strong>Two-Tier Worker Model:</strong> 1 upkeep worker on the demo origin handles keepalives, lease refreshes, and task scheduling, while 1 to 4 compute workers operate inside the sandbox iframe.</li>
+        <li><strong>Hidden Tab Execution:</strong> Background tabs continue computing; the upkeep worker prevents timer suspension, and Web Locks provide multi-tab leader coordination.</li>
+      </ul>
+    </section>
+
+    <!-- Section 3: Cryptographic Verification -->
+    <section class="admin-section" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
+      <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 10px; color: var(--accent);">3. Security & Cryptographic Envelope (WWPP-R37.1)</h2>
+      <p style="color: var(--text-main); margin-bottom: 12px; font-size: 0.92rem; line-height: 1.6;">
+        Tasks are validated with a mandatory fail-closed verification pipeline before WebAssembly compilation:
+      </p>
+      <ul style="color: var(--text-muted); padding-left: 20px; font-size: 0.9rem; line-height: 1.6;">
+        <li><strong>SHA-256 Hash Verification:</strong> Transferred WASM bytes are digested with WebCrypto; the digest must match <code>envelope.artifactSha256</code> exactly.</li>
+        <li><strong>Ed25519 Envelope Signature:</strong> The task envelope is canonicalized to sorted JSON and verified against the server's Ed25519 public key.</li>
+        <li><strong>Lease Bounds:</strong> Tasks with expired leases (<code>leaseExp &lt; now</code>) are rejected immediately.</li>
+      </ul>
+    </section>
+
+    <!-- Section 4: Metrics & Schema Table -->
+    <section class="admin-section" style="background: var(--bg-card); border: 1px solid var(--border-color); border-radius: var(--radius); padding: 20px; margin-bottom: 20px;">
+      <h2 style="font-size: 1.2rem; font-weight: 600; margin-bottom: 12px; color: var(--accent);">4. Contributor Metrics Reference Table</h2>
+      <div class="table-responsive" style="overflow-x: auto;">
+        <table class="data-table" style="width: 100%; border-collapse: collapse; font-size: 0.88rem;">
+          <thead>
+            <tr style="border-bottom: 1px solid var(--border-color); text-align: left; color: var(--text-muted);">
+              <th style="padding: 10px;">Metric ID</th>
+              <th style="padding: 10px;">Label</th>
+              <th style="padding: 10px;">Description</th>
+              <th style="padding: 10px;">Type</th>
+              <th style="padding: 10px;">Range / Rule</th>
+              <th style="padding: 10px;">Decision</th>
+            </tr>
+          </thead>
+          <tbody id="manual-rows-tbody">
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>tasks_completed</code></td>
+              <td style="padding: 10px;">Tasks Completed</td>
+              <td style="padding: 10px;">Total verified compute tasks finished by this node</td>
+              <td style="padding: 10px;">Integer</td>
+              <td style="padding: 10px;">&ge; 0</td>
+              <td style="padding: 10px;">WWPP-R39.1</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>avg_task_ms</code></td>
+              <td style="padding: 10px;">Average Compute Time</td>
+              <td style="padding: 10px;">Mean runtime per WASM task execution in milliseconds</td>
+              <td style="padding: 10px;">Float (ms)</td>
+              <td style="padding: 10px;">&ge; 0.0</td>
+              <td style="padding: 10px;">WWPP-R37.2</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>throughput_rate</code></td>
+              <td style="padding: 10px;">Throughput Rate</td>
+              <td style="padding: 10px;">Completed tasks processed per elapsed wall-clock second</td>
+              <td style="padding: 10px;">Float (/s)</td>
+              <td style="padding: 10px;">&ge; 0.0</td>
+              <td style="padding: 10px;">WWPP-R40.1</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>verify_pass</code></td>
+              <td style="padding: 10px;">Verifications Passed</td>
+              <td style="padding: 10px;">Count of tasks passing SHA-256 and Ed25519 signature validation</td>
+              <td style="padding: 10px;">Integer</td>
+              <td style="padding: 10px;">&ge; 0</td>
+              <td style="padding: 10px;">WWPP-R37.1</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>verify_fail</code></td>
+              <td style="padding: 10px;">Verifications Failed</td>
+              <td style="padding: 10px;">Count of rejected tasks due to tamper, hash mismatch, or expired lease</td>
+              <td style="padding: 10px;">Integer</td>
+              <td style="padding: 10px;">&ge; 0</td>
+              <td style="padding: 10px;">WWPP-R37.1</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>worker_count</code></td>
+              <td style="padding: 10px;">Compute Workers</td>
+              <td style="padding: 10px;">Number of parallel compute worker threads in sandbox</td>
+              <td style="padding: 10px;">Integer</td>
+              <td style="padding: 10px;">1 &ndash; 4</td>
+              <td style="padding: 10px;">WWPP-R29.4</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>source_mode</code></td>
+              <td style="padding: 10px;">Task Source Mode</td>
+              <td style="padding: 10px;">Source of task stream: LIVE SERVER or local MOCK generator</td>
+              <td style="padding: 10px;">Enum</td>
+              <td style="padding: 10px;">LIVE, MOCK</td>
+              <td style="padding: 10px;">WO_T3</td>
+            </tr>
+            <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+              <td style="padding: 10px;"><code>leader_state</code></td>
+              <td style="padding: 10px;">Web Lock Leader State</td>
+              <td style="padding: 10px;">Indicates whether this browser tab holds the leader lock</td>
+              <td style="padding: 10px;">Enum</td>
+              <td style="padding: 10px;">LEADER, STANDBY</td>
+              <td style="padding: 10px;">WWPP-R39.1</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Footer -->
+    <footer style="margin-top: 40px; border-top: 1px solid var(--border-color); padding-top: 20px; color: var(--text-dim); font-size: 0.85rem;">
+      <p>CCGSC Contributor Pool Runtime &bull; Opaque Sandbox Protocol &bull; Reference Manual &bull; WWPP-R40.3</p>
+    </footer>
+  </div>
+
+  <!-- Shared Nav Bar Loader -->
+  <script src="../../nav.js" defer></script>
+
+</body>
+</html>
+<!-- END OF manual/contribute.html -->

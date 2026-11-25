@@ -1,0 +1,574 @@
+/* WO-HC-WEB-01 style.css - Shared Accessible CSS for CCGSC Pools Admin & Monitor Pages */
+/* Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17. */
+/* Truth: F:/tmp/hcwork/ctx_rows_R37_R40.md + CCGSC_TWO_POOLS_DESIGN.md */
+
+:root {
+  --bg-main: #0b0f19;
+  --bg-card: #151d30;
+  --bg-card-alt: #1c2642;
+  --bg-input: #0f172a;
+  --border-color: #2b3956;
+  --border-focus: #38bdf8;
+  --text-main: #f1f5f9;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --accent: #38bdf8;
+  --accent-hover: #0284c7;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --info: #6366f1;
+  --radius: 8px;
+  --radius-sm: 4px;
+  --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.4);
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background-color: var(--bg-main);
+  color: var(--text-main);
+  line-height: 1.5;
+  padding-bottom: 60px;
+}
+
+/* Nav container styling integration */
+#ccgsc-nav {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  margin-bottom: 24px;
+}
+
+.ccgsc-nav {
+  background: #0f172a;
+  border-bottom: 1px solid var(--border-color);
+  padding: 10px 24px;
+  box-shadow: var(--shadow);
+}
+
+.ccgsc-nav-list {
+  list-style: none;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+  align-items: center;
+}
+
+.ccgsc-nav-item {
+  display: inline-block;
+}
+
+.ccgsc-nav-link {
+  display: inline-block;
+  color: #cbd5e1;
+  text-decoration: none;
+  font-size: 0.88rem;
+  padding: 6px 12px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
+}
+
+.ccgsc-nav-link:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ccgsc-nav-link:focus-visible {
+  outline: 2px solid var(--border-focus);
+  outline-offset: 2px;
+}
+
+.nav-active-page {
+  color: var(--accent) !important;
+  font-weight: 600;
+  border-color: rgba(56, 189, 248, 0.5);
+  background: rgba(56, 189, 248, 0.15);
+}
+
+.nav-active-host {
+  border-color: rgba(56, 189, 248, 0.3);
+}
+
+/* Layout container */
+.container {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+/* Page Header */
+.page-header {
+  margin-bottom: 24px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.page-title {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.page-desc {
+  color: var(--text-muted);
+  font-size: 0.95rem;
+  margin-top: 4px;
+  max-width: 800px;
+}
+
+.tier-badge {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  letter-spacing: 0.05em;
+}
+.tier-1 { background: rgba(56, 189, 248, 0.2); color: var(--accent); border: 1px solid var(--accent); }
+.tier-2 { background: rgba(245, 158, 11, 0.2); color: var(--warning); border: 1px solid var(--warning); }
+.tier-3 { background: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success); }
+
+/* Quick Section Nav Jump Bar */
+.section-nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 24px;
+  background: var(--bg-card);
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border-color);
+}
+
+.section-nav a {
+  color: var(--text-muted);
+  text-decoration: none;
+  font-size: 0.85rem;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s ease;
+}
+
+.section-nav a:hover {
+  color: #fff;
+  background: var(--bg-card-alt);
+}
+
+/* RFC 9457 Problem Alert Banner */
+.error-banner {
+  display: none;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid var(--danger);
+  border-radius: var(--radius);
+  padding: 16px;
+  margin-bottom: 24px;
+  color: #fca5a5;
+}
+
+.error-banner.visible {
+  display: block;
+}
+
+.error-banner h4 {
+  font-size: 1rem;
+  color: #fecaca;
+  margin-bottom: 6px;
+}
+
+.error-banner .error-detail {
+  font-size: 0.88rem;
+}
+
+/* Success Banner */
+.success-banner {
+  display: none;
+  background: rgba(16, 185, 129, 0.15);
+  border: 1px solid var(--success);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 24px;
+  color: #6ee7b7;
+}
+
+.success-banner.visible {
+  display: block;
+}
+
+/* Metric Cards Grid */
+.metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.metric-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 16px;
+  position: relative;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+  text-decoration: none;
+  color: inherit;
+  display: block;
+}
+
+a.metric-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--border-focus);
+}
+
+.metric-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.metric-card-label {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.metric-card-value {
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: #fff;
+  font-family: monospace;
+}
+
+.metric-card-sub {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  margin-top: 4px;
+}
+
+/* Sections & Form Cards */
+.admin-section {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  margin-bottom: 28px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+}
+
+.admin-section-header {
+  background: var(--bg-card-alt);
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.admin-section-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: #fff;
+}
+
+.admin-section-body {
+  padding: 20px;
+}
+
+/* Form Grid */
+.form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+
+@media (max-width: 600px) {
+  .form-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.form-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #e2e8f0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tooltip-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: bold;
+  cursor: help;
+  position: relative;
+  user-select: none;
+}
+
+.tooltip-icon:hover {
+  background: var(--accent);
+  color: #000;
+}
+
+/* Range Badge */
+.range-badge {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  font-family: monospace;
+}
+
+/* Controls */
+input[type="text"],
+input[type="number"],
+select,
+textarea {
+  background: var(--bg-input);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  padding: 8px 12px;
+  font-size: 0.9rem;
+  width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--border-focus);
+}
+
+.form-control-invalid {
+  border-color: var(--danger) !important;
+}
+
+.field-error-msg {
+  font-size: 0.78rem;
+  color: var(--danger);
+  margin-top: 2px;
+}
+
+/* Toggle Switch */
+.toggle-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  margin-top: 4px;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-block;
+  width: 44px;
+  height: 24px;
+}
+
+.toggle-switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.toggle-slider {
+  position: absolute;
+  cursor: pointer;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background-color: #334155;
+  transition: .2s;
+  border-radius: 24px;
+}
+
+.toggle-slider:before {
+  position: absolute;
+  content: "";
+  height: 18px;
+  width: 18px;
+  left: 3px;
+  bottom: 3px;
+  background-color: white;
+  transition: .2s;
+  border-radius: 50%;
+}
+
+input:checked + .toggle-slider {
+  background-color: var(--accent);
+}
+
+input:checked + .toggle-slider:before {
+  transform: translateX(20px);
+}
+
+/* Buttons */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: #0b0f19;
+}
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-card-alt);
+  color: var(--text-main);
+  border-color: var(--border-color);
+}
+.btn-secondary:hover {
+  background: #253358;
+}
+
+.btn-danger {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border-color: var(--danger);
+}
+.btn-danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+
+/* Tables */
+.table-responsive {
+  overflow-x: auto;
+}
+
+table.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+
+table.data-table th,
+table.data-table td {
+  padding: 10px 14px;
+  border: 1px solid var(--border-color);
+  text-align: left;
+}
+
+table.data-table th {
+  background: var(--bg-card-alt);
+  color: #cbd5e1;
+  font-weight: 600;
+}
+
+table.data-table tr:hover td {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+/* Config Versions & Audit Panel */
+.config-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 28px;
+}
+
+.config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-color);
+}
+
+/* Manual Section at Bottom */
+.manual-footer-section {
+  background: #0d1322;
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-top: 40px;
+}
+
+.manual-footer-section h3 {
+  font-size: 1.15rem;
+  color: #fff;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.manual-footer-section p {
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  line-height: 1.6;
+}
+
+/* WO-T2.2 data source badge: shows that a shown value came from mock.js, not pools-core. */
+.data-source-badge {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 200;
+  background: var(--warning);
+  color: #1f1300;
+  font-family: monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 4px 10px;
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+/* END OF style.css */

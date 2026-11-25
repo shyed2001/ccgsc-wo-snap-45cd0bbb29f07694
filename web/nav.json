@@ -1,0 +1,142 @@
+{
+  "_header": "WO-HC-NAV-01 nav.json - CCGSC Shared Navigation Links Registry",
+  "comment": "Truth: ctx_rows_R37_R40.md (R38.2, R38.3, R38.5, R40.x) + design doc sec 3/4/14. Roles: admin, director, contributor, developer.",
+  "links": [
+    {
+      "id": "public-info",
+      "label": "Public Info",
+      "href": "https://ccgsc.digitalbd.org/",
+      "host": "ccgsc.digitalbd.org",
+      "visibility": "public",
+      "group": "general",
+      "legend": "Main CCGSC public overview and general system information"
+    },
+    {
+      "id": "contribute-worker",
+      "label": "Contribute (Worker)",
+      "href": "https://ccgsc-demo.digitalbd.org/",
+      "host": "ccgsc-demo.digitalbd.org",
+      "visibility": "public",
+      "group": "compute",
+      "legend": "Volunteer browser compute worker page for CCGSC grid"
+    },
+    {
+      "id": "contributor-pool",
+      "label": "Contributor Pool",
+      "href": "https://ccgsc-demo.digitalbd.org/pools/contribute.html",
+      "host": "ccgsc-demo.digitalbd.org",
+      "visibility": "contributor",
+      "group": "compute",
+      "legend": "wwHost tab registration and device execution limit controls"
+    },
+    {
+      "id": "developer-portal",
+      "label": "Developer Portal",
+      "href": "https://ccgsc-dev.digitalbd.org/",
+      "host": "ccgsc-dev.digitalbd.org",
+      "visibility": "public",
+      "group": "developer",
+      "legend": "Developer API documentation and language idiom reference"
+    },
+    {
+      "id": "developer-keys",
+      "label": "API Keys & Metering",
+      "href": "https://ccgsc-dev.digitalbd.org/keys",
+      "host": "ccgsc-dev.digitalbd.org",
+      "visibility": "developer",
+      "group": "developer",
+      "legend": "Developer API keys, quota management, and job submission telemetry"
+    },
+    {
+      "id": "admin-login",
+      "label": "Admin Login",
+      "href": "https://ccgsc-director.digitalbd.org/pools/login.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "public",
+      "group": "pools-admin",
+      "legend": "Store A administrative session login"
+    },
+    {
+      "id": "pools-monitor",
+      "label": "Monitor",
+      "href": "https://ccgsc-director.digitalbd.org/pools/monitor.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "Brief combined live health overview of both pools and both APIs"
+    },
+    {
+      "id": "pool-monitor",
+      "label": "Pool Monitor",
+      "href": "https://ccgsc-director.digitalbd.org/pools/pool-monitor.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "Medium tier dashboard for Web Thread Pool and Web Process Pool status"
+    },
+    {
+      "id": "api-monitor",
+      "label": "API Monitor",
+      "href": "https://ccgsc-director.digitalbd.org/pools/api-monitor.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "Medium tier dashboard for Thread and Process Pool REST APIs and quotas"
+    },
+    {
+      "id": "thread-pool-admin",
+      "label": "Thread Pool Admin",
+      "href": "https://ccgsc-director.digitalbd.org/pools/thread-pool-admin.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "Web Thread Pool detailed controls, worker limits, and tamper verification"
+    },
+    {
+      "id": "process-pool-admin",
+      "label": "Process Pool Admin",
+      "href": "https://ccgsc-director.digitalbd.org/pools/process-pool-admin.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "Web Process Pool (wwHost) detailed controls, sessions, and device guards"
+    },
+    {
+      "id": "thread-api-admin",
+      "label": "Thread API Admin",
+      "href": "https://ccgsc-director.digitalbd.org/pools/thread-api-admin.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "API key permissions, quotas, and metering for /thread-pool/v1"
+    },
+    {
+      "id": "process-api-admin",
+      "label": "Process API Admin",
+      "href": "https://ccgsc-director.digitalbd.org/pools/process-api-admin.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "API key permissions, quotas, and session settings for /process-pool/v1"
+    },
+    {
+      "id": "manual",
+      "label": "Manual",
+      "href": "https://ccgsc-director.digitalbd.org/pools/manual/index.html",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "admin",
+      "group": "pools-admin",
+      "legend": "Configuration manual and reference documentation for all pool admin pages"
+    },
+    {
+      "id": "director-dashboards",
+      "label": "Director Apps",
+      "href": "https://ccgsc-director.digitalbd.org/director/",
+      "host": "ccgsc-director.digitalbd.org",
+      "visibility": "director",
+      "group": "director",
+      "legend": "Matrix, SSPrime, and IsPrime server application director dashboards"
+    }
+  ],
+  "_footer": "END OF nav.json"
+}

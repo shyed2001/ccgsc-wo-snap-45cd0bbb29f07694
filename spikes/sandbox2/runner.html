@@ -1,0 +1,284 @@
+<!doctype html>
+<!--
+File: F:\tmp\wwpp\spike_sandbox2\runner.html
+Author: hermes MiniMax-M3 for Claude Opus 5.5. Created 2026-11-17 (Dhaka).
+What/why: the trusted "run origin" side of WO-SPIKE2. Loaded by parent.html in a
+  sandbox="allow-scripts" iframe (no allow-same-origin) -> opaque origin. It accepts exactly ONE
+  bootstrap MessagePort from event.source === parent and the exact demo origin, acks with the
+  nonce over that port, and then talks only over the port (never window.postMessage).
+  Runs the checks that must happen inside the sandbox: compile_bytes (WebAssembly.compile on the
+  transferred ArrayBuffer, no fetch), sha256_in_iframe (crypto.subtle.digest + 1-byte tamper
+  rejection), ed25519_envelope (verify the server signature BEFORE executing, tampered envelope
+  must fail), webgpu (navigator.gpu + requestAdapter, also inside a compute worker) and
+  worker_cap (the runner alone creates workers, capped at min(4, hw-1)).
+-->
+<html><head><meta charset="utf-8"></head><body>
+<script>
+'use strict';
+
+// ---------------------------------------------------------------- helpers
+const hexOf = (u8) => Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
+const f2 = (x) => (typeof x === 'number' && isFinite(x)) ? x.toFixed(2) : 'na';
+function canonicalJson(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+}
+const flipHex = (h) => (h.charAt(0) === '0' ? '1' : '0') + h.slice(1);
+function pct(sorted, p) {
+  if (!sorted.length) return NaN;
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))))];
+}
+const EXPECTED_PARENT = new URL(location.href).searchParams.get('parent') || '';
+
+// ---------------------------------------------------------------- state
+let port = null;
+let bootstrapped = false;
+let bootstrapRejected = 0;      // extra/foreign bootstrap attempts that were refused
+const rejectReasons = {};       // reason -> count, reported back to the parent
+function refuseBootstrap(reason) {
+  bootstrapRejected++;
+  rejectReasons[reason] = (rejectReasons[reason] || 0) + 1;
+}
+function record(name, status, detail) {
+  if (port) { port.postMessage({ type: 'check', name: name, status: status, detail: String(detail == null ? '' : detail) }); }
+}
+
+// ---------------------------------------------------------------- bootstrap (single MessagePort)
+// Exactly ONE bootstrap is accepted: from parent, from the exact demo origin, with a port.
+// Every later or foreign attempt is refused and counted (WWPP-R39.1: one bootstrap per frame).
+window.addEventListener('message', (ev) => {
+  const d = (ev.data && typeof ev.data === 'object') ? ev.data : {};
+  if (bootstrapped) { refuseBootstrap('already_bootstrapped'); return; }   // exactly one bootstrap
+  if (ev.source !== parent) { refuseBootstrap('source_not_parent'); return; } // only the real parent
+  if (EXPECTED_PARENT && ev.origin !== EXPECTED_PARENT) { refuseBootstrap('origin_mismatch:' + ev.origin); return; }
+  if (d.type !== 'init') { refuseBootstrap('type_not_init'); return; }
+  const p = ev.ports && ev.ports[0];
+  if (!p) { refuseBootstrap('no_port'); return; }
+  bootstrapped = true;
+  port = p;
+  port.onmessage = onPortMessage;
+  // ack with the fresh nonce over the port (never over window.postMessage)
+  port.postMessage({
+    type: 'ready', nonce: d.nonce, selfOrigin: String(self.origin),
+    storage: probeStorage(), cookie: probeCookie(),
+    bootstrapRejected: bootstrapRejected, rejectReasons: rejectReasons
+  });
+});
+
+function probeStorage() {
+  const out = [];
+  try { localStorage.setItem('x', '1'); out.push('localStorage=OPEN'); } catch (e) { out.push('localStorage=blocked'); }
+  try { indexedDB.open('x'); out.push('indexedDB=OPEN?'); } catch (e) { out.push('indexedDB=blocked'); }
+  return out.join(',');
+}
+function probeCookie() {
+  try { return document.cookie === '' ? 'empty' : 'VISIBLE'; } catch (e) { return 'blocked'; }
+}
+
+// ---------------------------------------------------------------- port protocol
+function onPortMessage(ev) {
+  const d = ev.data;
+  if (!d) return;
+  if (d.type === 'ping') { port.postMessage({ type: 'pong', seq: d.seq }); return; }
+  if (d.type === 'job') { runJob(d); return; }
+}
+
+// ---------------------------------------------------------------- compute worker source
+// The compute worker instantiates a FRESH WebAssembly.Instance per task (WWPP-R39.1 "byte path")
+// and can probe WebGPU from inside the worker realm.
+const WORKER_SRC = `
+let mod = null;
+self.onmessage = async (ev) => {
+  const d = ev.data;
+  if (d.type === 'gpu') {
+    let has = !!navigator.gpu, adapter = false, err = '';
+    if (has) { try { const a = await navigator.gpu.requestAdapter(); adapter = !!a; } catch (e) { err = String(e && e.message || e); } }
+    postMessage({ type: 'gpu', has: has, adapter: adapter, err: err });
+    return;
+  }
+  if (d.type === 'module') { mod = d.module; postMessage({ type: 'ok' }); return; }
+  if (d.type === 'task') {
+    const t0 = performance.now();
+    const ex = new WebAssembly.Instance(mod).exports;   // fresh instance per task
+    const v = ex.sum(d.n);
+    postMessage({ type: 'done', v: v, ms: performance.now() - t0 });
+    return;
+  }
+};`;
+
+// ---------------------------------------------------------------- the worker cap gate (WWPP-R39.1)
+// Only the trusted runner creates compute workers. cap = min(4, hardwareConcurrency - 1).
+const CAP = Math.max(1, Math.min(4, (navigator.hardwareConcurrency || 2) - 1));
+let liveWorkers = 0;
+function allocateWorkers(url, n) {
+  if (n > CAP) {
+    const e = new Error('worker cap exceeded');
+    e.code = 'WORKER_CAP';
+    throw e;
+  }
+  const ws = Array.from({ length: n }, () => new Worker(url));
+  liveWorkers += ws.length;
+  return ws;
+}
+
+// ---------------------------------------------------------------- the job
+async function runJob(d) {
+  const timings = {};
+  try {
+    const bytes = d.wasm;                                        // transferred ArrayBuffer
+
+    // ---- CHECK 2: compile_bytes (WebAssembly.compile on the transferred buffer, no fetch)
+    const t0 = performance.now();
+    const module = await WebAssembly.compile(bytes);
+    const compileMs = performance.now() - t0;
+    timings.compileMs = compileMs;
+    const inst = new WebAssembly.Instance(module).exports;
+    const add23 = inst.add(2, 3);
+    const sum1000 = inst.sum(1000);
+    const isBuf = (bytes instanceof ArrayBuffer);
+    record('compile_bytes', (isBuf && add23 === 5 && sum1000 === 499500) ? 'PASS' : 'FAIL',
+      'bytes=' + (bytes.byteLength | 0) + ' compile_ms=' + f2(compileMs) + ' add_2_3=' + add23 +
+      ' sum_1000=' + sum1000 + ' src=' + (isBuf ? 'ArrayBuffer' : 'other') + ' fetch_used=0');
+
+    // ---- CHECK 3: sha256_in_iframe (digest + 1-byte tampered copy must be rejected)
+    if (!(window.crypto && window.crypto.subtle && window.crypto.subtle.digest)) {
+      record('sha256_in_iframe', 'SKIP', 'reason=crypto.subtle_undefined_in_opaque_origin');
+    } else {
+      const dg = await crypto.subtle.digest('SHA-256', bytes);
+      const computed = hexOf(new Uint8Array(dg));
+      const tampered = new Uint8Array(bytes.slice(0));
+      tampered[0] = tampered[0] ^ 0xff;                        // 1-byte tamper
+      const tdg = await crypto.subtle.digest('SHA-256', tampered);
+      const tamperedHex = hexOf(new Uint8Array(tdg));
+      const match = (computed === d.wasmSha256);
+      const rejected = (tamperedHex !== d.wasmSha256);
+      record('sha256_in_iframe', (match && rejected) ? 'PASS' : 'FAIL',
+        'match=' + (match ? 1 : 0) + ' tampered_rejected=' + (rejected ? 1 : 0) +
+        ' expected=' + String(d.wasmSha256).slice(0, 16) + ' computed=' + computed.slice(0, 16) +
+        ' tampered=' + tamperedHex.slice(0, 16));
+      // sha256 throughput metric (ms per MB) - 4 MB buffer
+      const big = new Uint8Array(4 * 1024 * 1024);
+      const bt0 = performance.now();
+      await crypto.subtle.digest('SHA-256', big);
+      timings.shaMsPerMb = (performance.now() - bt0) / 4;
+    }
+
+    // ---- CHECK 4: ed25519_envelope (verify the server signature BEFORE executing anything)
+    let gateOk = true;
+    if (d.signErr) {
+      record('ed25519_envelope', 'SKIP', 'reason=parent_sign_failed_' + d.signErr);
+      gateOk = false;
+    } else if (!(window.crypto && window.crypto.subtle && window.crypto.subtle.importKey)) {
+      record('ed25519_envelope', 'SKIP', 'reason=crypto.subtle_unavailable');
+    } else {
+      try {
+        const v0 = performance.now();
+        const pk = await crypto.subtle.importKey('raw', d.pubKeyRaw, { name: 'Ed25519' }, true, ['verify']);
+        const verifyOk = await crypto.subtle.verify('Ed25519', pk, d.envSig, d.envPlain);
+        const verifyMs = performance.now() - v0;
+        timings.verifyMs = verifyMs;
+        const canonical = new TextEncoder().encode(canonicalJson(d.envelope));
+        const canonSame = (hexOf(canonical) === hexOf(new Uint8Array(d.envPlain)));
+        const tamperedEnv = Object.assign({}, d.envelope, { artifactSha256: flipHex(d.envelope.artifactSha256) });
+        const tamperedOk = await crypto.subtle.verify('Ed25519', pk, d.envSig, new TextEncoder().encode(canonicalJson(tamperedEnv)));
+        const good = verifyOk && canonSame && !tamperedOk;
+        gateOk = good;
+        record('ed25519_envelope', good ? 'PASS' : 'FAIL',
+          'verify_ok=' + (verifyOk ? 1 : 0) + ' canonical_match=' + (canonSame ? 1 : 0) +
+          ' tampered_rejected=' + (!tamperedOk ? 1 : 0) + ' fields=' + Object.keys(d.envelope).length +
+          ' verify_ms=' + f2(verifyMs));
+      } catch (e) {
+        record('ed25519_envelope', 'SKIP', 'reason=ed25519_unsupported_' + String(e && e.message || e).replace(/\s+/g, '_'));
+      }
+    }
+
+    // ---- CHECK 6: worker_cap (the runner alone allocates; the cap refuses an over-sized request)
+    const url = URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' }));
+    let ws = null, started = 0, refused = 0, gate = 'none';
+    try {
+      ws = allocateWorkers(url, d.workersRequested);            // must be refused
+      started = ws.length;
+    } catch (e) {
+      gate = 'refused';
+      refused = d.workersRequested - CAP;
+      ws = allocateWorkers(url, CAP);
+      started = ws.length;
+    }
+    const capOk = (gate === 'refused' && started === CAP && started <= CAP);
+    record('worker_cap', capOk ? 'PASS' : 'FAIL',
+      'requested=' + d.workersRequested + ' cap=' + CAP + ' started=' + started + ' refused=' + refused +
+      ' hw=' + (navigator.hardwareConcurrency || 0) + ' gate=' + gate);
+
+    // ---- CHECK 5: webgpu (iframe realm + compute worker realm)
+    const gpuPresent = !!navigator.gpu;
+    let adapter = false, gpuErr = '';
+    if (gpuPresent) {
+      try { const a = await navigator.gpu.requestAdapter(); adapter = !!a; }
+      catch (e) { gpuErr = String(e && e.message || e).replace(/\s+/g, '_'); }
+    }
+    let wHas = false, wAdapter = false;
+    try {
+      const g = await new Promise((res, rej) => {
+        const to = setTimeout(() => rej(new Error('gpu_probe_timeout')), 5000);
+        ws[0].onmessage = (ev) => { if (ev.data && ev.data.type === 'gpu') { clearTimeout(to); res(ev.data); } };
+        ws[0].onerror = () => { clearTimeout(to); rej(new Error('worker_error')); };
+        ws[0].postMessage({ type: 'gpu' });
+      });
+      wHas = !!g.has; wAdapter = !!g.adapter;
+    } catch (e) { gpuErr = gpuErr || String(e && e.message || e).replace(/\s+/g, '_'); }
+    const gpuStatus = (gpuPresent && adapter) ? 'PASS' : 'SKIP';
+    record('webgpu', gpuStatus,
+      'gpu_present=' + (gpuPresent ? 1 : 0) + ' adapter=' + (adapter ? 1 : 0) +
+      ' worker_gpu_present=' + (wHas ? 1 : 0) + ' worker_adapter=' + (wAdapter ? 1 : 0) +
+      ' allow_attr=webgpu reason=' + (gpuStatus === 'PASS' ? 'adapter_ok' : (gpuPresent ? 'no_adapter' : 'navigator_gpu_undefined')) +
+      (gpuErr ? ' err=' + gpuErr : ''));
+
+    // ---- fail closed: a bad signature must stop the compute (PDL step 1)
+    if (!gateOk) {
+      port.postMessage({ type: 'result', executed: false, workers: started, tasks: 0, sumsOk: false,
+        add23: add23, timings: timings, bootstrapRejected: bootstrapRejected, rejectReasons: rejectReasons });
+      return;
+    }
+
+    // ---- compute: module to every worker, fresh instance per task
+    await Promise.all(ws.map(w => new Promise((res, rej) => {
+      w.onmessage = (ev) => (ev.data && ev.data.type === 'ok' ? res() : rej(new Error('init')));
+      w.onerror = () => rej(new Error('worker_error'));
+      w.postMessage({ type: 'module', module: module });
+    })));
+
+    // worker message round trip (WWPP-R37.2 metric): 10 warmup + 50 measured
+    const WARM = 10, RN = 50;
+    const samples = [];
+    for (let i = 0; i < WARM + RN; i++) {
+      const t1 = performance.now();
+      await new Promise((res) => { ws[0].onmessage = () => res(); ws[0].postMessage({ type: 'task', n: 1 }); });
+      const dt = performance.now() - t1;
+      if (i >= WARM) samples.push(dt * 1000);            // microseconds
+    }
+    const sorted = samples.slice().sort((a, b) => a - b);
+    timings.workerRtP50 = pct(sorted, 0.5);
+    timings.workerRtP95 = pct(sorted, 0.95);
+    timings.portRtP50 = NaN;                               // the parent owns the port metric
+
+    let next = 0; const vals = [];
+    await Promise.all(ws.map(w => (async () => {
+      while (true) {
+        const my = next++;
+        if (my >= d.tasks) break;
+        const v = await new Promise((res) => { w.onmessage = (ev) => res(ev.data.v); w.postMessage({ type: 'task', n: d.n }); });
+        vals.push(v);
+      }
+    })()));
+    let s = 0; for (let i = 0; i < d.n; i++) { s = (s + i) | 0; }
+    const sumsOk = (vals.length === d.tasks) && vals.every(v => v === s);
+    port.postMessage({ type: 'result', executed: true, workers: started, tasks: vals.length, sumsOk: sumsOk,
+      add23: add23, timings: timings, bootstrapRejected: bootstrapRejected, rejectReasons: rejectReasons });
+  } catch (e) {
+    port.postMessage({ type: 'error', msg: String(e && e.message || e) });
+  }
+}
+</script>
+</body></html>
+<!-- END OF FILE runner.html -->

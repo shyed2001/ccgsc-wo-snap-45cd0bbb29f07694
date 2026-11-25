@@ -1,0 +1,29 @@
+{
+  "id": "ssprime",
+  "version": 1,
+  "kind": "js-module",
+  "entry": "entry.js",
+  "sha256": "5a80eaca4cdd1dc1569509de2d3a07a0e2b6d51f563ac8453cf55a0f7985d3c0",
+  "runtime": "javascript+wasm",
+  "files": [
+    {
+      "path": "entry.js",
+      "sha256": "5a80eaca4cdd1dc1569509de2d3a07a0e2b6d51f563ac8453cf55a0f7985d3c0",
+      "entry": true
+    },
+    {
+      "path": "segment.wasm",
+      "sha256": "4c8544719c4b3bf102c44f406eb617c41c436a1d0bc55a7c426a89104bf7e8fc"
+    }
+  ],
+  "demoInput": {
+    "json": {
+      "start": 0,
+      "end": 1001
+    }
+  },
+  "output": {
+    "format": "ccgsc-prime-json-v1",
+    "bytes": "UTF-8 compact JSON; no BOM or newline; see README"
+  }
+}

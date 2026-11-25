@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- WO-HC-WEB-01 api-monitor.html - CCGSC Medium API Monitor for Both APIs (Tier 2) -->
+  <!-- Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17 -->
+  <!-- Truth: F:/tmp/hcwork/ctx_rows_R37_R40.md (WWPP-R38.5b) + design doc sec 14 -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCGSC API Monitor (Medium Tier)</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Shared Navigation Bar Mount -->
+  <header id="ccgsc-nav" aria-label="Global CCGSC Navigation"></header>
+
+  <div class="container">
+    <div id="page-header-container"></div>
+    <div id="section-nav-container"></div>
+
+    <div id="error-banner" class="error-banner" role="alert"></div>
+    <div id="success-banner" class="success-banner" role="status"></div>
+
+    <!-- Main Dashboards & Live Metrics Grid -->
+    <main id="main-content"></main>
+
+    <!-- Bottom Manual Section -->
+    <footer id="manual"></footer>
+  </div>
+
+  <!-- Shared Nav Bar Module -->
+  <script type="module" src="/nav/nav.js"></script>
+
+  <!-- Page Initialization Controller -->
+  <script type="module">
+    import { CCGSCPageApp } from './js/app.js';
+    window.appInstance = new CCGSCPageApp('api-monitor');
+    window.appInstance.init().catch(console.error);
+  </script>
+
+</body>
+</html>
+<!-- END OF api-monitor.html -->

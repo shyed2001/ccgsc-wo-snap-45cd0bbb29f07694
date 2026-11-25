@@ -1,0 +1,556 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ccgsc.digitalbd.org/schemas/pools/thread-pool-admin/1.0.0",
+  "title": "CCGSC thread-pool-admin page config",
+  "description": "JSON Schema 2020-12 for the config jsonb of one pool_config_version row whose page = 'thread-pool-admin'. Covers the re-run percentage, the 4 tamper measures with their parameters, the workers-per-tab min/max/auto settings, P2P enabled (default true), dew enabled with its window in seconds, the metrics on/off switches and keep_last. This document is the authority: every Save is validated against it (WWPP-R40.2). The matching PostgreSQL DDL is pool_config.sql.",
+  "$comment": "Header: WO-HC-SCH-01 (hc, vostro, cmdc deepseek-v4-pro) - config storage schema, tmp only. Work order author: Claude Opus 5.5 head, 2026-11-17. Implemented by hermes MiniMax-M3, 2026-11-17. Truth input: F:/tmp/hcwork/ctx_rows_R37_R40.md rows WWPP-R38.6, WWPP-R38.7, WWPP-R40.2 and owner rule R-97. Status: tmp only, draft - not deployed, no database was contacted. Guardrails honoured: only this file and pool_config.sql were written; no DB connection; no network. END footer: the last key is x_end. T91 / R42.8, Codex, 2026-11-20: optional shared Redis settings; credentials are environment-only.",
+  "x_header": {
+    "work_order": "WO-HC-SCH-01",
+    "page": "thread-pool-admin",
+    "schema_id": "thread-pool-admin",
+    "schema_version": "1.0.0",
+    "truth_inputs": [
+      "WWPP-R38.6",
+      "WWPP-R38.7",
+      "WWPP-R40.2",
+      "R-97"
+    ],
+    "companion_ddl": "pool_config.sql",
+    "status": "tmp only, draft, not deployed",
+    "created": "2026-11-17",
+    "created_by": "hermes MiniMax-M3",
+    "units": {
+      "tp.dew.window_seconds": "seconds (86400 = 24 h)",
+      "cfg.keep_last": "versions kept per page",
+      "tp.ver.rerun_percent": "percent (0-100, 0 = off)"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "propertyNames": {
+    "pattern": "^(tp|cfg|redis)\\.[a-z0-9_]+(\\.[a-z0-9_]+)*$"
+  },
+  "required": [
+    "tp.wrk.per_tab",
+    "tp.wrk.min",
+    "tp.wrk.max",
+    "tp.ver.hash_check",
+    "tp.ver.rerun_percent",
+    "tp.ver.signed_envelope",
+    "tp.ver.canary",
+    "tp.p2p.enabled",
+    "tp.dew.enabled",
+    "tp.dew.window_seconds",
+    "tp.met.light",
+    "cfg.keep_last"
+  ],
+  "properties": {
+    "tp.gen.enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Master switch; off stops new task leasing in this pool. (WWPP-R27.1)"
+    },
+    "tp.gen.name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "default": "Web Thread Pool",
+      "description": "Display name shown in nav, monitors and API responses. (WWPP-R38.5)"
+    },
+    "tp.gen.fetch_mode": {
+      "type": "string",
+      "enum": [
+        "leader",
+        "each-tab"
+      ],
+      "default": "leader",
+      "description": "Same-device fetch mode: leader tab per device or every tab on its own; inefficient pool use always warns. (WWPP-R22.1, WWPP-R23.2)"
+    },
+    "tp.gen.shareable": {
+      "type": "boolean",
+      "default": true,
+      "description": "Lets a developer mark outputs shareable; the admin may disable it for the pool. (WWPP-R23.4)"
+    },
+    "tp.gen.group_by": {
+      "type": "string",
+      "enum": [
+        "none",
+        "label",
+        "device-class"
+      ],
+      "default": "none",
+      "description": "Default task partitioning key applied when the developer gives none. (WWPP-R32.2)"
+    },
+    "tp.wrk.per_tab": {
+      "oneOf": [
+        {
+          "const": "auto"
+        },
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        }
+      ],
+      "default": "auto",
+      "description": "Compute web worker threads per tab; auto means logical cores minus one, otherwise 1 to 4. (WWPP-R29.4)"
+    },
+    "tp.wrk.min": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 1,
+      "description": "Lowest number of compute workers the pool allows per tab. (WWPP-R29.4)"
+    },
+    "tp.wrk.max": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 32,
+      "default": 4,
+      "description": "Highest number of compute workers per tab; the server admin may raise it where more cores exist. (WWPP-R29.4, WWPP-R23.1)"
+    },
+    "tp.wrk.phones": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2,
+      "default": 1,
+      "description": "Workers per tab on phones. (WWPP-R10.4)"
+    },
+    "tp.wrk.laptops": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2,
+      "description": "Workers per tab on laptops. (WWPP-R10.4)"
+    },
+    "tp.wrk.desktops": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8,
+      "default": 4,
+      "description": "Workers per tab on desktops. (WWPP-R10.4)"
+    },
+    "tp.wrk.owner": {
+      "oneOf": [
+        {
+          "const": "auto"
+        },
+        {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        }
+      ],
+      "default": "auto",
+      "description": "Workers per tab on owner nodes. (WWPP-R10.4, WWPP-R29.4)"
+    },
+    "tp.wrk.phone_battery": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 2,
+      "default": 1,
+      "description": "Workers per tab while the phone runs on battery. (WWPP-R30.2)"
+    },
+    "tp.wrk.phone_charging": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2,
+      "description": "Workers per tab while charging with the screen on. (WWPP-R30.2)"
+    },
+    "tp.wrk.phone_stop": {
+      "type": "integer",
+      "minimum": 5,
+      "maximum": 50,
+      "default": 20,
+      "description": "Work stops below this battery level. (WWPP-R30.2)"
+    },
+    "tp.gd.cpu": {
+      "type": "string",
+      "enum": [
+        "low",
+        "medium",
+        "full"
+      ],
+      "default": "medium",
+      "description": "Contributor CPU effort profile the server asks for. (WWPP-R30.1)"
+    },
+    "tp.gd.backoff": {
+      "type": "boolean",
+      "default": true,
+      "description": "Drops worker effort only when the device is very very busy. (WWPP-R30.1)"
+    },
+    "tp.gd.battery": {
+      "type": "boolean",
+      "default": true,
+      "description": "Applies the phone battery and heat rules where the device supports them. (WWPP-R30.1)"
+    },
+    "tp.gd.memory": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4096,
+      "description": "Upper memory bound asked of each worker, in MiB. Default TBD: the owner has not decided it. (WWPP-R30.1)"
+    },
+    "tp.gd.hidden_tab": {
+      "type": "boolean",
+      "const": false,
+      "description": "Deliberately off: hidden and background tabs must keep working, never pause. (WWPP-R30.1, WWPP-R39.1)"
+    },
+    "tp.gpu.enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Allows jobs to declare cpu, gpu or gpu-preferred tasks in this pool. (WWPP-R33.1)"
+    },
+    "tp.gpu.max_slots_per_tab": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 2,
+      "description": "Maximum concurrent GPU leases per contributor tab."
+    },
+    "tp.gpu.on_battery_allowed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Allows GPU leases on phone and laptop tabs while they are on battery."
+    },
+    "tp.gpu.time_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 3600,
+      "description": "Maximum runtime of one GPU task, in seconds. Default TBD: the owner has not decided it. (WWPP-R33.1)"
+    },
+    "tp.gpu.memory_limit": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 8192,
+      "description": "Maximum GPU memory one task may request, in MiB. Default TBD: the owner has not decided it. (WWPP-R33.1)"
+    },
+    "tp.gpu.charging_only": {
+      "type": "boolean",
+      "default": true,
+      "description": "GPU tasks are eligible only while the device is charging. (WWPP-R33.1)"
+    },
+    "tp.sch.bounded_queue": {
+      "type": "boolean",
+      "default": true,
+      "description": "Caps the admitted queue depth; the queue never grows without limit. (WWPP-R32.5)"
+    },
+    "tp.sch.rejection": {
+      "type": "string",
+      "enum": [
+        "reject-429",
+        "block-timeout",
+        "drop-oldest",
+        "caller-runs"
+      ],
+      "description": "What happens when the bounded queue is full. Default TBD: the owner has not decided it; reject-429 is the proposal. (WWPP-R25.3)"
+    },
+    "tp.sch.priority_high": {
+      "type": "boolean",
+      "default": false,
+      "description": "Lets the admin allow the high priority class in this pool. (WWPP-R25.2)"
+    },
+    "tp.sch.fair_share": {
+      "type": "boolean",
+      "default": true,
+      "description": "Shares pool capacity fairly between developers. (WWPP-R32.5)"
+    },
+    "tp.sch.batch_size": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 1000,
+      "description": "Default task batch size handed to a device class. Default TBD: the owner has not decided it. (WWPP-R34.1)"
+    },
+    "tp.sch.small_task": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "description": "Tasks below this size raise an efficiency warning on all four surfaces. Default TBD: the owner has not decided it. (WWPP-R24.4)"
+    },
+    "tp.ver.hash_check": {
+      "type": "boolean",
+      "default": true,
+      "description": "Tamper measure 1 of 4: verifies artifact and input SHA-256 on every load, including IndexedDB cache hits. (WWPP-R37.1, WWPP-R37.1b)"
+    },
+    "tp.ver.rerun_percent": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 1,
+      "description": "Tamper measure 2 of 4: percentage of accepted results re-run on another worker, exact hashes only; 0 % turns the measure off. Developer-led inside the admin allowance. (WWPP-R35.1, WWPP-R37.1b)"
+    },
+    "tp.ver.signed_envelope": {
+      "type": "boolean",
+      "default": true,
+      "description": "Tamper measure 3 of 4: server signs each envelope with Ed25519 over job and task ids, artifact and input hashes and the lease. (WWPP-R37.1, WWPP-R37.1b)"
+    },
+    "tp.ver.canary": {
+      "type": "boolean",
+      "default": true,
+      "description": "Tamper measure 4 of 4: schedules hidden known-answer tasks to test worker trustworthiness. (WWPP-R37.1, WWPP-R37.1b)"
+    },
+    "tp.ver.canary_warn": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 75,
+      "description": "Reputation score at or below which the worker is warned. (WWPP-R37.1, WWPP-R39.1)"
+    },
+    "tp.ver.canary_bar": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 50,
+      "description": "Reputation score at or below which the worker is barred from tasks. (WWPP-R37.1, WWPP-R39.1)"
+    },
+    "tp.ver.canary_ban": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "default": 0,
+      "description": "Reputation score at or below which the worker is banned. (WWPP-R37.1, WWPP-R39.1)"
+    },
+    "tp.ver.reputation_recovery": {
+      "type": "string",
+      "enum": [
+        "manual-review",
+        "auto"
+      ],
+      "default": "manual-review",
+      "description": "A ban is lifted by admin review; there is no automatic recovery. (WWPP-R37.1, WWPP-R39.1)"
+    },
+    "tp.ver.mode": {
+      "type": "string",
+      "enum": [
+        "a",
+        "b"
+      ],
+      "default": "a",
+      "description": "(a) server mechanisms plus developer policy, or (b) developer only with results labelled unverified. (WWPP-R24.1)"
+    },
+    "tp.ver.k_of_n": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 5,
+      "description": "Independent checks that must agree before a result counts as verified. Default TBD: the owner has not decided it. (WWPP-R24.1)"
+    },
+    "tp.ver.local_after_download": {
+      "type": "boolean",
+      "default": true,
+      "description": "Lets developers verify results locally after download. (WWPP-R24.1)"
+    },
+    "tp.ver.evidence": {
+      "type": "string",
+      "enum": [
+        "a",
+        "b"
+      ],
+      "default": "a",
+      "description": "(a) server minimal: security log plus SHA-256 of every accepted result, or (b) everything opt-in. (WWPP-R35.2)"
+    },
+    "tp.ver.chain": {
+      "type": "boolean",
+      "default": false,
+      "description": "Per-job hash chain written by the server; built and tested even while off. (WWPP-R26.2)"
+    },
+    "tp.ver.merkle": {
+      "type": "boolean",
+      "default": false,
+      "description": "Adds periodic Merkle roots over the tips of job chains. (WWPP-R22.3)"
+    },
+    "tp.ver.chain_authority": {
+      "type": "string",
+      "enum": [
+        "a",
+        "b"
+      ],
+      "description": "(a) admin global Merkle on/off with developer raise-only, or (b) developer free choice inside the allowance. Default TBD: the owner has not decided it. (WWPP-R23.3)"
+    },
+    "tp.p2p.enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Hash-addressed sharing of server-published artifacts and inputs; results always go to the server. Default ON everywhere until tested; the admin may switch it off. (WWPP-R36.2, WWPP-R36.2-RES)"
+    },
+    "tp.p2p.peer_scope": {
+      "type": "string",
+      "enum": [
+        "same-device",
+        "same-phone",
+        "same-lan",
+        "near"
+      ],
+      "default": "same-lan",
+      "description": "Which peers may serve artifacts: same device, same phone, same LAN or very close proximity. (WWPP-R9.1)"
+    },
+    "tp.p2p.task_handoff": {
+      "type": "boolean",
+      "default": false,
+      "description": "Historical P2P scope kept as a setting; not an active peer data flow. (WWPP-R9.1, WWPP-R36.2)"
+    },
+    "tp.p2p.result_relay": {
+      "type": "boolean",
+      "default": false,
+      "description": "Historical P2P scope kept as a setting; results are never relayed over P2P. (WWPP-R9.1, WWPP-R36.2, WWPP-R39.1)"
+    },
+    "tp.p2p.rtt_probe": {
+      "type": "boolean",
+      "default": false,
+      "description": "Uses round-trip time in peer ordering once the probe exists. (WWPP-R14.1)"
+    },
+    "tp.p2p.fallback": {
+      "type": "boolean",
+      "default": true,
+      "description": "Falls back to server or CDN when no peer can serve the artifact. (WWPP-R36.2)"
+    },
+    "tp.dew.enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Offline leases with signed receipts so a tab may submit results later. (WWPP-R36.2)"
+    },
+    "tp.dew.window_seconds": {
+      "type": "integer",
+      "minimum": 3600,
+      "maximum": 259200,
+      "default": 86400,
+      "description": "How long a signed dew receipt stays valid, in seconds; the default 86400 s is the 24 h window. (WWPP-R36.2)"
+    },
+    "tp.dew.late_policy": {
+      "type": "string",
+      "enum": [
+        "a",
+        "b",
+        "c"
+      ],
+      "default": "a",
+      "description": "(a) archived lease id and attempt match, (b) accept only if no other attempt reported, (c) drop after re-lease. (WWPP-R13.2)"
+    },
+    "tp.dew.max_attempts": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3,
+      "description": "Attempts allowed for one task before it fails. (WWPP-R32.9)"
+    },
+    "tp.dew.job_policy": {
+      "type": "string",
+      "enum": [
+        "partial",
+        "fail-fast",
+        "threshold"
+      ],
+      "default": "partial",
+      "description": "What the job does when a task cannot complete. (WWPP-R32.9)"
+    },
+    "tp.dew.quarantine": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "default": 3,
+      "description": "Worker crashes before a poison task is quarantined. (WWPP-R32.9)"
+    },
+    "tp.dew.dead_letter": {
+      "type": "boolean",
+      "default": true,
+      "description": "Keeps late results that arrive after the job ended, with no second credit. (WWPP-R32.9)"
+    },
+    "tp.met.light": {
+      "type": "boolean",
+      "default": true,
+      "description": "Light metrics: per-feature timings and counters in one PostgreSQL metrics table; disabled intervals are recorded, never fabricated. (WWPP-R37.2)"
+    },
+    "tp.met.detail": {
+      "type": "string",
+      "enum": [
+        "light",
+        "standard",
+        "full"
+      ],
+      "description": "How much per-feature detail the metrics table keeps. Default TBD: the owner has not decided it. (WWPP-R37.2)"
+    },
+    "tp.met.benchmark": {
+      "type": "boolean",
+      "default": true,
+      "description": "Heavy thesis benchmark harness for owner-started thesis runs beside the MVP. (WWPP-R37.2)"
+    },
+    "cfg.keep_last": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 100,
+      "default": 10,
+      "description": "Number of config versions kept for this admin page; the count is itself an admin setting. Mirrored in pool_config_retention.keep_last. (WWPP-R38.7)"
+    },
+    "cfg.reason_required": {
+      "type": "boolean",
+      "default": true,
+      "description": "Each Save records who, when, what changed and why. (WWPP-R38.6)"
+    },
+    "cfg.pin_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64,
+      "description": "Optional admin-named pin, for example a thesis run; the name is unique per page. (WWPP-R38.7)"
+    },
+    "redis.memory.mode": {
+      "type": "string",
+      "enum": [
+        "fixed",
+        "dynamic"
+      ],
+      "default": "fixed",
+      "description": "T91 / R42.8: shared Redis cap mode; always noeviction."
+    },
+    "redis.memory.fixed_gb": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 4,
+      "default": 1,
+      "description": "Fixed cap in binary GB (GiB)."
+    },
+    "redis.memory.dynamic_percent": {
+      "type": "integer",
+      "minimum": 10,
+      "maximum": 40,
+      "default": 10,
+      "description": "Percent of Linux MemAvailable, clamped to 1-4 GiB."
+    },
+    "redis.memory.interval_min": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 60,
+      "default": 5,
+      "description": "Dynamic recomputation interval in minutes."
+    },
+    "redis.persistence.mode": {
+      "type": "string",
+      "enum": [
+        "aof_everysec",
+        "snapshot"
+      ],
+      "default": "aof_everysec",
+      "description": "AOF every second or existing Redis snapshot save rules only."
+    }
+  },
+  "x_notes": [
+    "tp.wrk.min must not exceed tp.wrk.max: JSON Schema 2020-12 cannot compare two sibling numbers, so this cross-field rule is enforced by the pool_config_guard_version() trigger in pool_config.sql.",
+    "The dew window is expressed in seconds (86400 s = the 24 h owner default) as the work order requires; pool_config.sql keeps the same unit in the DB check.",
+    "A property without a default is a value the owner has not decided yet; it is marked TBD in its description and must be supplied explicitly on Save.",
+    "The re-run measure is switched off with the value 0 %; it has no separate on/off switch, matching WWPP-R35.1.",
+    "Defaults listed here are the proposal carried by the admin manual source ADMIN_MANUALS_SOURCE.md and the design draft; the owner keeps the final say."
+  ],
+  "x_id_mapping": {
+    "note": "The admin manual source ADMIN_MANUALS_SOURCE.md is the UI list; this table maps the ids whose schema key differs from the manual id, so the app and the database agree on one name.",
+    "tp.dew.window": "tp.dew.window_seconds - the manual shows hours, the schema stores seconds as the work order requires (default 86400 s = 24 h).",
+    "tp.cfg.retention": "cfg.keep_last - the manual label is Version retention; the schema key is keep_last as the work order requires (default 10).",
+    "tp.cfg.pin": "cfg.pin_name - the pin name itself lives in pool_config_version.pinned_name; this key carries the admin-named pin in the page config.",
+    "tp.cfg.reason": "cfg.reason_required - the reason text lives in pool_config_version.reason; this key says whether a Save may omit it.",
+    "tp.cfg.rollback": "not a stored value - rollback is the pool_config_rollback() function in pool_config.sql, it creates a new audited version."
+  },
+  "x_tamper_measures": {
+    "1": "tp.ver.hash_check - hash check on every load, including IndexedDB cache hits (WWPP-R37.1)",
+    "2": "tp.ver.rerun_percent - random re-run percentage, 0 % switches the measure off (WWPP-R35.1)",
+    "3": "tp.ver.signed_envelope - Ed25519 signed task envelope (WWPP-R37.1)",
+    "4": "tp.ver.canary - canary known-answer tasks plus the reputation thresholds (WWPP-R37.1)",
+    "configurable_on": "the admin pages, on and off with parameters each (WWPP-R37.1b)"
+  },
+  "x_end": "END"
+}

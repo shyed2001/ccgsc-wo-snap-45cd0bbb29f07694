@@ -1,0 +1,64 @@
+{
+  "id": "matmul",
+  "version": 1,
+  "kind": "wasm-abi",
+  "entry": "matmul_scalar.wasm",
+  "sha256": "5c78d2790d970d92c745d12d986eb541d8851ec47584b12a107d9ca98dfaab9f",
+  "runtime": "wasm32",
+  "source": "matmul.c",
+  "build": "build.ps1",
+  "abi": "docs/ccgsc_abi.h",
+  "kernels": [
+    {
+      "id": "matmul@1:scalar",
+      "variant": "scalar",
+      "artifact": "matmul_scalar.wasm",
+      "bytes": 892,
+      "sha256": "5c78d2790d970d92c745d12d986eb541d8851ec47584b12a107d9ca98dfaab9f",
+      "flags": [
+        "--target=wasm32",
+        "-nostdlib",
+        "-O2",
+        "-ffp-contract=off",
+        "-Wl,--no-entry"
+      ],
+      "reference": {
+        "160": "1a5a6c39c56eada3b4ca01eaed913972ed5e48d1318884748e1abf3646abc2d2",
+        "240": "049db7c32a56cc68f03c9bff543f27f7733d1510104782ccc4510e5754cb320c"
+      }
+    },
+    {
+      "id": "matmul@1:simd",
+      "variant": "simd",
+      "artifact": "matmul_simd.wasm",
+      "bytes": 1083,
+      "sha256": "1b618cbcd063f0d9b87b62572155e0e358bcfb8f1c99240ab85db111dfa1fe1b",
+      "flags": [
+        "--target=wasm32",
+        "-nostdlib",
+        "-O2",
+        "-ffp-contract=off",
+        "-msimd128",
+        "-Wl,--no-entry"
+      ],
+      "reference": {
+        "160": "1a5a6c39c56eada3b4ca01eaed913972ed5e48d1318884748e1abf3646abc2d2",
+        "240": "049db7c32a56cc68f03c9bff543f27f7733d1510104782ccc4510e5754cb320c"
+      }
+    }
+  ],
+  "input": {
+    "encoding": "bytesBase64",
+    "header": "little-endian u32 n",
+    "bytes": "4 + n*n little-endian f32 A + n*n little-endian f32 B",
+    "n": [
+      160,
+      240
+    ]
+  },
+  "output": {
+    "encoding": "bytes",
+    "bytes": "n*n little-endian f32 C, row-major"
+  },
+  "note": "D-W10-10 example workload (workload layer). The reference hash of a wasm-abi kernel is keyed by workload id + version + variant; both variants are recorded because they are two identities. The measured hashes MEASURED on this host are recorded here; equality with the JavaScript kernel at 160^3/240^3 is an observation here, not a requirement of the ABI."
+}

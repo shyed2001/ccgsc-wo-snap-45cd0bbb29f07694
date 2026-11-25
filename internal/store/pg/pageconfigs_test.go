@@ -1,0 +1,206 @@
+// Path: internal/store/pg/pageconfigs_test.go | Author: hermes MiniMax-M3 for Claude Opus 5.5 | 2026-11-18
+// What/why: the smallest valid config of every one of the 7 admin pages, so the test that
+// proves every page can be saved carries a config that really satisfies the schema of
+// that page (WO FIX-E: before, only thread-pool-admin had a registered schema, so the
+// other 6 pages could never be saved).
+package pg
+
+import "encoding/json"
+
+// pageConfig holds the smallest valid config of one admin page.
+type pageConfig struct {
+	page   string
+	config json.RawMessage
+}
+
+// validPageConfigs are the smallest valid configs of the 7 admin pages, built from the
+// registered schema documents of db/pool_config.sql.
+var validPageConfigs = []pageConfig{
+	{
+		page: "monitor",
+		config: json.RawMessage(`{
+  "mon.alert.auto": false,
+  "mon.alert.level": "info",
+  "mon.alert.refresh": 5,
+  "mon.link.numbers": false,
+  "mon.link.target": "same-tab",
+  "mon.metrics.read": false,
+  "mon.p95.window": "1m",
+  "mon.trust.window_hours": 1
+}`),
+	},
+	{
+		page: "pool-monitor",
+		config: json.RawMessage(`{
+  "pm.cap.refresh": 5,
+  "pm.cap.slot_detail": false,
+  "pm.ctl.pause_scheduling": false,
+  "pm.ctl.requests": false,
+  "pm.ctl.requeue_failed": false,
+  "pm.dev.device_class": false,
+  "pm.dev.gpu_reported": false,
+  "pm.dev.workers_per_tab": false,
+  "pm.err.banner": "compact",
+  "pm.err.leases_expiring": false,
+  "pm.work.window": "15m"
+}`),
+	},
+	{
+		page: "api-monitor",
+		config: json.RawMessage(`{
+  "am.ctl.pause_ingress": false,
+  "am.err.banner": "compact",
+  "am.err.codes": false,
+  "am.keys.activity": false,
+  "am.keys.revoked": false,
+  "am.quota.credits": false,
+  "am.quota.usage": false,
+  "am.quota.warn": false,
+  "am.scope": "thread",
+  "am.sessions.list": false,
+  "am.sys.card": false,
+  "am.traffic.refresh": 5,
+  "am.traffic.window": "1m"
+}`),
+	},
+	{
+		page: "thread-pool-admin",
+		config: json.RawMessage(`{
+  "cfg.keep_last": 10,
+  "tp.dew.enabled": true,
+  "tp.dew.window_seconds": 86400,
+  "tp.met.light": true,
+  "tp.p2p.enabled": true,
+  "tp.ver.canary": true,
+  "tp.ver.hash_check": true,
+  "tp.ver.rerun_percent": 1,
+  "tp.ver.signed_envelope": true,
+  "tp.wrk.max": 4,
+  "tp.wrk.min": 1,
+  "tp.wrk.per_tab": "auto"
+}`),
+	},
+	{
+		page: "process-pool-admin",
+		config: json.RawMessage(`{
+  "pp.cfg.reason": false,
+  "pp.cfg.retention": 1,
+  "pp.dew.dead_letter": false,
+  "pp.dew.enabled": false,
+  "pp.dew.job_policy": "partial",
+  "pp.dew.late_policy": "a",
+  "pp.dew.max_attempts": 1,
+  "pp.dew.quarantine": 1,
+  "pp.dew.window": 1,
+  "pp.gd.backoff": false,
+  "pp.gd.battery": false,
+  "pp.gd.cpu": "low",
+  "pp.gd.hidden_tab": false,
+  "pp.gen.enabled": false,
+  "pp.gen.fetch_mode": "leader",
+  "pp.gen.name": "x",
+  "pp.gen.shareable": false,
+  "pp.gpu.charging_only": false,
+  "pp.gpu.enabled": false,
+  "pp.met.benchmark": false,
+  "pp.met.light": false,
+  "pp.p2p.enabled": false,
+  "pp.p2p.fallback": false,
+  "pp.p2p.peer_scope": "same-device",
+  "pp.p2p.result_relay": false,
+  "pp.p2p.rtt_probe": false,
+  "pp.p2p.task_handoff": false,
+  "pp.sch.bounded_queue": false,
+  "pp.sch.fair_share": false,
+  "pp.sch.priority_high": false,
+  "pp.shape.close_policy": "release",
+  "pp.shape.warm_initializer": false,
+  "pp.ver.canary": false,
+  "pp.ver.canary_ban": 0,
+  "pp.ver.canary_bar": 0,
+  "pp.ver.canary_warn": 0,
+  "pp.ver.chain": false,
+  "pp.ver.evidence": "a",
+  "pp.ver.hash_check": false,
+  "pp.ver.local_after_download": false,
+  "pp.ver.merkle": false,
+  "pp.ver.mode": "a",
+  "pp.ver.reputation_recovery": "manual-review",
+  "pp.ver.rerun_percent": 0,
+  "pp.ver.signed_envelope": false,
+  "pp.wrk.desktops": 1,
+  "pp.wrk.laptops": 1,
+  "pp.wrk.max": 1,
+  "pp.wrk.min": 1,
+  "pp.wrk.owner": "auto",
+  "pp.wrk.per_tab": "auto",
+  "pp.wrk.phone_battery": 1,
+  "pp.wrk.phone_charging": 1,
+  "pp.wrk.phone_stop": 5,
+  "pp.wrk.phones": 1
+}`),
+	},
+	{
+		page: "thread-api-admin",
+		config: json.RawMessage(`{
+  "ta.cfg.reason": false,
+  "ta.cfg.retention": 1,
+  "ta.err.cursor": false,
+  "ta.err.idempotency": false,
+  "ta.err.problem_json": false,
+  "ta.err.traceparent": false,
+  "ta.fair.credits": false,
+  "ta.fair.priority_high": false,
+  "ta.fair.rewards": false,
+  "ta.fair.share": false,
+  "ta.keys.approval": "approve-each",
+  "ta.keys.issuance": "manual",
+  "ta.keys.jwt_ttl": 1,
+  "ta.keys.oauth2": false,
+  "ta.q.retry_after": false,
+  "ta.queue.bounded": false,
+  "ta.upload.format": false,
+  "ta.upload.hash": false,
+  "ta.upload.malware": false,
+  "ta.upload.review_gate": false,
+  "ta.upload.scan": false,
+  "ta.upload.size": false,
+  "ta.ver.contract_tests": false,
+  "ta.ver.major": "x",
+  "ta.ver.notice": 3
+}`),
+	},
+	{
+		page: "process-api-admin",
+		config: json.RawMessage(`{
+  "pa.cfg.reason": false,
+  "pa.cfg.retention": 1,
+  "pa.err.cursor": false,
+  "pa.err.idempotency": false,
+  "pa.err.problem_json": false,
+  "pa.err.traceparent": false,
+  "pa.fair.credits": false,
+  "pa.fair.priority_high": false,
+  "pa.fair.rewards": false,
+  "pa.fair.share": false,
+  "pa.keys.approval": "approve-each",
+  "pa.keys.issuance": "manual",
+  "pa.keys.jwt_ttl": 1,
+  "pa.keys.oauth2": false,
+  "pa.q.retry_after": false,
+  "pa.queue.bounded": false,
+  "pa.ses.close_policy": "release",
+  "pa.ses.enabled": false,
+  "pa.ses.warm_initializer": false,
+  "pa.upload.format": false,
+  "pa.upload.hash": false,
+  "pa.upload.malware": false,
+  "pa.upload.review_gate": false,
+  "pa.upload.scan": false,
+  "pa.upload.size": false,
+  "pa.ver.contract_tests": false,
+  "pa.ver.major": "x",
+  "pa.ver.notice": 3
+}`),
+	},
+}

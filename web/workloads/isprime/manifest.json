@@ -1,0 +1,34 @@
+{
+  "id": "isprime",
+  "version": 1,
+  "kind": "js-module",
+  "entry": "entry.js",
+  "sha256": "8e15afeea1e7ef1a25f75045acbcf92a2cda5f1b9443b1b412bbc4d2a920899a",
+  "runtime": "javascript+wasm",
+  "files": [
+    {
+      "path": "entry.js",
+      "sha256": "8e15afeea1e7ef1a25f75045acbcf92a2cda5f1b9443b1b412bbc4d2a920899a",
+      "entry": true
+    },
+    {
+      "path": "prime_library.wasm",
+      "sha256": "8f24374f4c1ec921b273476a4f5dd837fdc044a04079a8a908ff579992f6171e"
+    }
+  ],
+  "demoInput": {
+    "json": {
+      "values": [
+        1,
+        2,
+        3,
+        561,
+        "18446744073709551557"
+      ]
+    }
+  },
+  "output": {
+    "format": "ccgsc-prime-json-v1",
+    "bytes": "UTF-8 compact JSON; no BOM or newline; see README"
+  }
+}

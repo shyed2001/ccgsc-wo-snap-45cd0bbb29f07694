@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<!-- WO_T3_CONTRIBUTE_PAGE contribute.html - CCGSC Contributor Pool Page (Tier 0 / Crowd Cloud) -->
+<!-- Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17 -->
+<!-- Truth: WO_T3_CONTRIBUTE_PAGE.md, GRILL_WWPP_R1.md (R29.1, R30.1-3, R31.1-2, R37.1, R39.1) -->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CCGSC Contribute (Contributor Pool Worker)</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .contribute-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .stat-label {
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .stat-value {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .stat-sub {
+      font-size: 0.8rem;
+      color: var(--text-dim);
+    }
+    .control-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 24px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 3px 8px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+    .badge-primary { background: #0284c7; color: #fff; }
+    .badge-success { background: #059669; color: #fff; }
+    .badge-warning { background: #d97706; color: #fff; }
+    .badge-info { background: #4f46e5; color: #fff; }
+    .badge-dim { background: #334155; color: #94a3b8; }
+    .log-box {
+      background: #060911;
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius);
+      padding: 12px;
+      font-family: monospace;
+      font-size: 0.82rem;
+      color: #38bdf8;
+      height: 180px;
+      overflow-y: auto;
+      white-space: pre-wrap;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Shared Navigation Bar Mount (populated via web/nav.js) -->
+  <nav id="nav" class="ccgsc-nav" aria-label="Global CCGSC Navigation">
+    <a href="/web/monitor/" style="margin-right: 1rem; color: #cbd5e1; text-decoration: none;">Monitor</a>
+    <a href="/web/admin/" style="margin-right: 1rem; color: #cbd5e1; text-decoration: none;">Admin</a>
+    <a href="/web/contribute/" style="margin-right: 1rem; color: #38bdf8; font-weight: 600; text-decoration: none;">Contribute</a>
+  </nav>
+
+  <div class="container" style="max-width: 1100px; margin: 0 auto; padding: 20px;">
+    <!-- Page Header -->
+    <header class="page-header" style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 24px;">
+      <div>
+        <h1 style="font-size: 1.8rem; font-weight: 700; margin-bottom: 6px;">
+          Contribute Computing Power
+          <span id="source-badge" class="badge badge-warning">MOCK</span>
+          <span id="status-badge" class="badge badge-dim">IDLE</span>
+          <span id="leader-badge" class="badge badge-info">LEADER TAB</span>
+        </h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">
+          Donate browser compute capacity to the CCGSC distributed pool. Dev modules execute safely inside an isolated null-origin sandbox.
+        </p>
+        <p style="color: var(--text-dim); font-size: 0.85rem; margin-top: 4px;">
+          <a href="manual/contribute.html" style="color: var(--accent); text-decoration: none;">&rarr; Read the Contributor Manual</a> &bull;
+          <a href="https://ccgsc-dev.digitalbd.org" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">Developer Portal</a> &bull;
+          <a href="https://ccgsc.digitalbd.org" target="_blank" rel="noopener" style="color: var(--accent); text-decoration: none;">CCGSC Network Home</a>
+        </p>
+      </div>
+    </header>
+
+    <!-- Device & Configuration Controls -->
+    <section class="control-panel">
+      <h2 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 12px;">Device & Worker Controls</h2>
+      <div style="display: flex; flex-wrap: wrap; gap: 20px; align-items: center;">
+        <div>
+          <label for="worker-count-select" style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Compute Workers</label>
+          <select id="worker-count-select" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); padding: 8px 12px; border-radius: var(--radius-sm);">
+            <option value="auto" selected>Auto (Rule: cores - 1, max 4, phone 1-2)</option>
+            <option value="1">1 Worker</option>
+            <option value="2">2 Workers</option>
+            <option value="3">3 Workers</option>
+            <option value="4">4 Workers (Cap)</option>
+          </select>
+        </div>
+        <div>
+          <span style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Device Profile</span>
+          <span id="hw-info" style="font-size: 0.9rem; color: var(--text-main); font-family: monospace;">Detecting device...</span>
+        </div>
+        <div>
+          <span style="font-size: 0.85rem; color: var(--text-muted); display: block; margin-bottom: 4px;">Security Guards</span>
+          <span style="font-size: 0.85rem; color: #10b981;">&#10003; Ed25519 Signed &bull; &#10003; SHA-256 Hash &bull; &#10003; Web Lock Leader &bull; &#10003; Sandbox Frame</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="control-panel" aria-labelledby="egress-title">
+      <h2 id="egress-title">Approved developer network endpoints</h2>
+      <pre id="egress-app-list" style="white-space:pre-wrap">Loading approved applications...</pre>
+      <label><input id="egress-consent" type="checkbox" disabled> Join the listed network-enabled applications (consent to these endpoints).</label>
+      <p>Unchecked: compute-only applications remain available. Reload to review changed approvals.</p>
+    </section>
+
+    <!-- Live Statistics Cards -->
+    <section class="contribute-grid">
+      <div class="stat-card">
+        <span class="stat-label">Tasks Completed</span>
+        <span id="stat-tasks-done" class="stat-value">0</span>
+        <span class="stat-sub">Valid compute results</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Average Compute Time</span>
+        <span id="stat-avg-ms" class="stat-value">0 ms</span>
+        <span class="stat-sub">Per completed WASM task</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Throughput Rate</span>
+        <span id="stat-rate" class="stat-value">0.0 /s</span>
+        <span class="stat-sub">Tasks processed per second</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Accepted tasks</span>
+        <span id="stat-accepted-tasks" class="stat-value">not measured</span>
+        <span class="stat-sub">This account, or this browser install</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Compute time</span>
+        <span id="stat-compute-ms" class="stat-value">not measured</span>
+        <span class="stat-sub">Milliseconds credited by the server</span>
+      </div>
+      <div class="stat-card">
+        <span class="stat-label">Envelope Verifications</span>
+        <div style="display: flex; gap: 16px; align-items: baseline;">
+          <span style="color: #10b981; font-size: 1.8rem; font-weight: 700;" id="stat-verify-pass">0</span>
+          <span style="color: var(--text-muted); font-size: 0.9rem;">pass /</span>
+          <span style="color: #ef4444; font-size: 1.4rem; font-weight: 700;" id="stat-verify-fail">0</span>
+          <span style="color: var(--text-muted); font-size: 0.9rem;">fail</span>
+        </div>
+        <span class="stat-sub">SHA-256 & Ed25519 checks</span>
+      </div>
+    </section>
+
+    <!-- Live Log Console -->
+    <section style="margin-bottom: 24px;">
+      <h2 style="font-size: 1.1rem; font-weight: 600; margin-bottom: 8px;">Activity Log</h2>
+      <pre id="log-output" class="log-box">[System ready. Idle.]</pre>
+    </section>
+
+    <!-- Opaque Sandbox Runner Iframe (WWPP-R29.1, R39.1) -->
+    <!-- sandbox="allow-scripts" ensures opaque null origin: no cookies, no storage, no DOM access to parent -->
+    <iframe id="runner-frame" sandbox="allow-scripts" allow="webgpu" style="display:none;" title="Isolated Compute Sandbox"></iframe>
+  </div>
+
+  <!-- Shared Nav Bar Loader -->
+  <!-- The shared nav is served under /nav/, like every other page loads it.
+       The old relative "../nav.js" resolved to /nav.js, which is not a
+       route: the server answered it with an RFC 9457 problem body, so the
+       browser refused the script for its MIME type. -->
+  <script src="/nav/nav.js" defer></script>
+
+  <!-- Page Initialization Controller. T104 steps 7/10: the one entry boots this
+       page. It has no legacy lane area, so its layout is pinned to "pools":
+       ?layout is ignored here and ?autostart=0 / ?pools=0 keep their meaning.
+       contribute.js stays imported as the app module (and as the standalone
+       fallback if the entry cannot load). -->
+  <script type="module">
+    import { startContributorPage } from './js/contribute_page_T104.js';
+    // The device hint of the budget rule (phone: 1 worker on battery, 2 charging).
+    try {
+      const { detectIsPhone } = await import('./js/contribute.js');
+      window.CCGSC_IS_PHONE = detectIsPhone();
+    } catch (_) { /* no hint: the entry trusts the navigator */ }
+    startContributorPage({ forcedLayout: 'pools' }).catch((err) => {
+      console.error('[contribute.html] startContributorPage error:', err);
+    });
+  </script>
+  <script type="module" src="./js/contribute.js"></script>
+
+</body>
+</html>
+<!-- END OF contribute.html -->

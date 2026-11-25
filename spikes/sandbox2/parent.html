@@ -1,0 +1,326 @@
+<!doctype html>
+<!--
+File: F:\tmp\wwpp\spike_sandbox2\parent.html
+Author: hermes MiniMax-M3 for Claude Opus 5.5. Created 2026-11-17 (Dhaka).
+What/why: WO-SPIKE2 - sandbox spike v2. Demo-origin parent page. It creates ONE fresh MessageChannel,
+  transfers one port to the known opaque run iframe with a single bootstrap
+  window.postMessage({type:'init'},'*',[port2]) (WWPP-R39.1 "MessageChannel bootstrap and relay"),
+  then ignores every window 'message' - all traffic goes over the port. Drives 8 checks:
+  port_handshake, compile_bytes, sha256_in_iframe, ed25519_envelope, webgpu, worker_cap,
+  web_lock, timings. Final line SPIKE2 PASS|FAIL is mirrored into document.title.
+How: serve.py serves this folder on 8711 (this page) and 8712 (run origin). The runner iframe is
+  sandbox="allow-scripts" (no allow-same-origin -> opaque origin) loaded from 8712.
+-->
+<html><head><meta charset="utf-8"><title>SPIKE2 RUNNING</title></head>
+<body>
+<h3>WO-SPIKE2 sandbox spike v2</h3>
+<pre id="log"></pre>
+<script>
+'use strict';
+
+// ---------------------------------------------------------------- log + check plumbing
+const logEl = document.getElementById('log');
+const logLines = [];
+const checks = {};                                   // name -> {status, detail}
+const CHECK_ORDER = ['port_handshake', 'compile_bytes', 'sha256_in_iframe', 'ed25519_envelope',
+                     'webgpu', 'worker_cap', 'web_lock', 'timings'];
+function log(m) { logLines.push(m); logEl.textContent = logLines.join('\n') + '\n'; }
+function record(name, status, detail) {
+  checks[name] = { status: status, detail: String(detail == null ? '' : detail) };
+  log('CHECK ' + name + ' ' + status + ' ' + checks[name].detail);
+}
+const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+const hexOf = (u8) => Array.from(u8).map(b => b.toString(16).padStart(2, '0')).join('');
+const f2 = (x) => (typeof x === 'number' && isFinite(x)) ? x.toFixed(2) : 'na';
+// canonical JSON (sorted keys) - the exact bytes that get signed by Ed25519
+function canonicalJson(v) {
+  if (v === null || typeof v !== 'object') return JSON.stringify(v);
+  if (Array.isArray(v)) return '[' + v.map(canonicalJson).join(',') + ']';
+  return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + canonicalJson(v[k])).join(',') + '}';
+}
+async function sha256Hex(buf) {
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return hexOf(new Uint8Array(d));
+}
+// percentile over a sorted array (p in 0..1) - §16 wants p50/p95, not just a mean
+function pct(sorted, p) {
+  if (!sorted.length) return NaN;
+  return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(p * (sorted.length - 1))))];
+}
+
+// ---------------------------------------------------------------- spike constants
+// Base WASM bytes kept verbatim from spike_sandbox (87 bytes, validated with node 2026-11-17:
+// add(2,3)=5, sum(1000)=499500). Same bytes, so the two spikes stay comparable.
+const WASM = new Uint8Array([0,97,115,109,1,0,0,0,1,12,2,96,2,127,127,1,127,96,1,127,1,127,3,3,2,0,1,7,13,2,3,97,100,100,0,0,3,115,117,109,0,1,10,43,2,7,0,32,0,32,1,106,11,33,1,2,127,3,64,32,1,32,0,72,4,64,32,2,32,1,106,33,2,32,1,65,1,106,33,1,12,1,11,11,32,2,11]);
+const RUN_PORT = Number(location.port) + 1;                       // 8712 = run origin
+const RUN_ORIGIN = location.protocol + '//' + location.hostname + ':' + RUN_PORT;
+const RUN_URL = RUN_ORIGIN + '/runner.html?parent=' + encodeURIComponent(location.origin);
+const NONCE = hexOf(crypto.getRandomValues(new Uint8Array(16)));
+const CHANNEL = new MessageChannel();                             // the one channel of this spike
+
+// ---------------------------------------------------------------- state
+let port = null;
+let bootPosted = false;
+let windowMsgsAfterInit = 0;
+let windowMsgsBeforeInit = 0;
+let forgedResultSeen = false;        // a fake srcdoc iframe posted {type:'result'} -> must be ignored
+let forgedAdd = null;                // the poison value it carried (999) - proves it was never applied
+let windowResultCount = 0;           // window results OFFERED
+let portResultCount = 0;             // results RECEIVED over the port (the only legitimate path)
+let hand = { acked: false, nonceOk: false };
+let portRt = { p50: NaN, p95: NaN, mean: NaN };
+let signMs = 0;
+let runnerResult = null;
+let finalised = false;
+let port2 = CHANNEL.port2;
+
+// ---- write trap on the verdict variable ------------------------------------
+// `finalAdd` is the value the verdict is computed from. ONLY the port handler may write it.
+// It is installed as a trapped global so that ANY write is counted and attributed: a write that
+// does not come from the port handler (e.g. a window 'result' being applied) is detected even if
+// a later legitimate write would otherwise overwrite it. Ordering cannot hide the bug.
+let verdictWrites = 0;
+let verdictWriteFromPort = false;
+let verdictViolations = 0;        // writes to finalAdd that did NOT come from the port handler
+let expectingPortWrite = false;
+Object.defineProperty(globalThis, 'finalAdd', {
+  configurable: true,
+  get() { return finalAddValue; },
+  set(v) {
+    verdictWrites++;
+    verdictWriteFromPort = !!expectingPortWrite;
+    if (!expectingPortWrite) {
+      verdictViolations++;
+      log('VIOLATION finalAdd written outside the port handler (value=' + v + ') - window result applied?');
+    }
+    finalAddValue = v;
+  }
+});
+let finalAddValue = null;
+
+// ---------------------------------------------------------------- window 'message' = dead channel
+// After the bootstrap the parent must ignore ANY window 'message' (WWPP-R39.1). The only accepted
+// channel is the transferred MessagePort. The fake iframe forges {type:'result'} to prove it.
+window.addEventListener('message', (ev) => {
+  const d = (ev.data && typeof ev.data === 'object') ? ev.data : {};
+  const type = d.type || 'unknown';
+  if (!bootPosted) {
+    windowMsgsBeforeInit++;
+    log('IGNORED pre-init window message type=' + type + ' origin=' + ev.origin);
+    return;
+  }
+  windowMsgsAfterInit++;
+  const from = (ev.source === iframe.contentWindow) ? 'runner' : 'foreign';
+  if (type === 'result') {
+    forgedResultSeen = true;
+    windowResultCount++;
+    forgedAdd = (typeof d.add === 'number') ? d.add : null;   // poison value, only visible if applied
+  }
+  log('IGNORED window message type=' + type + ' origin=' + ev.origin + ' from=' + from +
+      ' (window results are NEVER applied)');
+});
+
+// ---------------------------------------------------------------- CHECK 1: port handshake
+// The parent creates the channel, transfers port2 to the iframe with ONE bootstrap postMessage,
+// and never answers a window 'message' again. The runner must ack over the port with the nonce.
+function emitHandshakeCheck() {
+  if (checks.port_handshake) return;
+  const bootRejected = runnerResult ? (runnerResult.bootstrapRejected || 0) : 0;
+  const ok = hand.acked && hand.nonceOk &&
+             forgedResultSeen && windowResultCount >= 1 &&
+             portResultCount >= 1 &&
+             forgedAdd !== null && forgedAdd !== finalAdd &&   // the poison was NOT applied
+             finalAdd === 5 &&                                 // the real result DID arrive on the port
+             bootRejected >= 1 &&                              // a second bootstrap was refused
+             verdictViolations === 0 &&                       // NO write to the verdict came from a window message
+             verdictWrites === 1;                             // exactly one verdict write (the port one)
+  record('port_handshake', ok ? 'PASS' : 'FAIL',
+    'nonce_ok=' + (hand.nonceOk ? 1 : 0) +
+    ' forged_result_seen=' + (forgedResultSeen ? 1 : 0) +
+    ' forged_add=' + forgedAdd + ' forged_applied=' + (forgedAdd === finalAdd ? 1 : 0) +
+    ' final_add=' + finalAdd +
+    ' port_results=' + portResultCount + ' window_results=' + windowResultCount +
+    ' window_msgs_ignored=' + windowMsgsAfterInit +
+    ' pre_init_msgs=' + windowMsgsBeforeInit +
+    ' runner_bootstrap_rejected=' + bootRejected +
+    ' reject_reasons=' + JSON.stringify(runnerResult ? (runnerResult.rejectReasons || {}) : {}) +
+    ' verdict_writes=' + verdictWrites + ' verdict_violations=' + verdictViolations +
+    ' channel=MessageChannel');
+}
+
+// The forged-message probe: a second, sandboxed srcdoc iframe posts a POISONED {type:'result'} at
+// the parent over window.postMessage. The parent must ignore it. add:999 is detectable - if the
+// parent ever applied it, final_add would read 999 instead of the real 5.
+function makeFakeIframe() {
+  const fake = document.createElement('iframe');
+  fake.setAttribute('sandbox', 'allow-scripts');
+  const poison = '<!doctype html><meta charset="utf-8"><script>' +
+    'var p={type:"result",workers:16,tasks:8,add:999,sumsOk:true,ms:0.1,rtUs:1,poisoned:true};' +
+    'parent.postMessage(p,"*");setTimeout(function(){parent.postMessage(p,"*");},250);' +
+    '<\/script>';
+  fake.setAttribute('srcdoc', poison);
+  fake.style.display = 'none';
+  document.body.appendChild(fake);
+}
+
+// ---------------------------------------------------------------- port traffic
+port = CHANNEL.port1;
+port.onmessage = (ev) => {
+  const d = (ev.data && typeof ev.data === 'object') ? ev.data : {};
+  if (d.type === 'ready') { onReady(d); }
+  else if (d.type === 'check') { record(d.name, d.status, d.detail); }
+  else if (d.type === 'result') { onResult(d); }
+  else if (d.type === 'error') { log('ERROR ' + d.msg); finalise('runner error: ' + d.msg); }
+};
+
+async function onReady(d) {
+  hand.acked = true;
+  hand.nonceOk = (d.nonce === NONCE);
+  log('READY over port nonce_ok=' + hand.nonceOk + ' iframe_origin=' + d.selfOrigin +
+      ' storage=' + d.storage + ' cookie=' + d.cookie + ' hw=' + (navigator.hardwareConcurrency || 0));
+
+  // port round trip (WWPP-R37.2 metric): 10 warmup + 50 measured ping/pong over the MessagePort
+  const WARM = 10, N = 50;
+  const samples = [];
+  for (let i = 0; i < WARM + N; i++) {
+    const t0 = performance.now();
+    await new Promise((res) => {
+      const onPong = (e) => { if (e.data && e.data.type === 'pong' && e.data.seq === i) { port.removeEventListener('message', onPong); res(); } };
+      port.addEventListener('message', onPong);
+      port.postMessage({ type: 'ping', seq: i });
+    });
+    const dt = performance.now() - t0;
+    if (i >= WARM) samples.push(dt * 1000);          // microseconds
+  }
+  const sorted = samples.slice().sort((a, b) => a - b);
+  portRt = { p50: pct(sorted, 0.5), p95: pct(sorted, 0.95), mean: samples.reduce((a, b) => a + b, 0) / samples.length };
+  log('INFO port round trip us p50=' + f2(portRt.p50) + ' p95=' + f2(portRt.p95) + ' mean=' + f2(portRt.mean));
+  await sendJob();
+}
+
+// The signed task envelope: parent plays the server, signs canonical JSON with Ed25519 and
+// hands the raw public key + signature + the WASM bytes (transferred) to the runner.
+async function sendJob() {
+  const buf = WASM.slice().buffer;                       // fresh ArrayBuffer, transferred to the runner
+  const shaHex = await sha256Hex(buf);
+  const jobId = 'job-' + NONCE.slice(0, 8);
+  const taskId = 'task-' + NONCE.slice(0, 8);
+  const leaseExp = Math.floor(Date.now() / 1000) + 3600;
+  const envelope = { jobId: jobId, taskId: taskId, artifactSha256: shaHex, inputSha256: shaHex, leaseExp: leaseExp };
+  const plain = new TextEncoder().encode(canonicalJson(envelope));
+  const t0 = performance.now();
+  let envSig = null, pubRaw = null, signErr = '';
+  try {
+    const kp = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
+    envSig = new Uint8Array(await crypto.subtle.sign('Ed25519', kp.privateKey, plain));
+    pubRaw = new Uint8Array(await crypto.subtle.exportKey('raw', kp.publicKey));
+  } catch (e) {
+    signErr = String(e && e.message || e).replace(/\s+/g, '_');
+  }
+  signMs = performance.now() - t0;
+  port.postMessage({
+    type: 'job', jobId: jobId, taskId: taskId, nonce: NONCE,
+    wasm: buf, wasmSha256: shaHex,
+    envelope: envelope, envPlain: plain, envSig: envSig, pubKeyRaw: pubRaw, signErr: signErr,
+    workersRequested: 16, n: 20000000, tasks: 8
+  }, [buf]);
+}
+
+async function onResult(d) {
+  runnerResult = d;
+  portResultCount++;
+  expectingPortWrite = true;              // the ONLY legitimate writer of finalAdd
+  finalAdd = (typeof d.add23 === 'number') ? d.add23 : null;
+  expectingPortWrite = false;
+  // wait for the forged window message so the handshake check can prove it was ignored
+  const t0 = Date.now();
+  while (!forgedResultSeen && Date.now() - t0 < 6000) { await sleep(50); }
+  emitHandshakeCheck();
+  const t = d.timings || {};
+  // the parent owns the port metric (portRtP50), the runner owns the worker metric (workerRtP50)
+  const need = ['compileMs', 'workerRtP50'];
+  const missing = need.filter(k => typeof t[k] !== 'number' || !isFinite(t[k]));
+  if (!isFinite(portRt.p50)) missing.push('portRtP50(parent)');
+  if (missing.length) {
+    record('timings', 'SKIP', 'reason=missing_metrics_' + missing.join('+'));
+  } else {
+    record('timings', 'PASS',
+      'compile_ms=' + f2(t.compileMs) + ' sha256_ms_per_MB=' + f2(t.shaMsPerMb) +
+      ' ed25519_sign_ms=' + f2(signMs) + ' ed25519_verify_ms=' + f2(t.verifyMs) +
+      ' port_rt_us_p50=' + f2(portRt.p50) + ' port_rt_us_p95=' + f2(portRt.p95) +
+      ' worker_rt_us_p50=' + f2(t.workerRtP50) + ' worker_rt_us_p95=' + f2(t.workerRtP95) +
+      ' hw=' + (navigator.hardwareConcurrency || 0) + ' ua=' + navigator.userAgent.slice(0, 60));
+  }
+  log('INFO runner executed=' + d.executed + ' workers=' + d.workers + ' tasks=' + d.tasks +
+      ' sums_ok=' + d.sumsOk + ' add_2_3=' + d.add23);
+  finalise('');
+}
+
+// ---------------------------------------------------------------- CHECK 7: web lock leader
+async function runWebLockCheck() {
+  if (!navigator.locks || !navigator.locks.request) {
+    record('web_lock', 'SKIP', 'reason=navigator.locks_unavailable');
+    return;
+  }
+  try {
+    let leader = false, called = false;
+    await navigator.locks.request('ccgsc-leader', { ifAvailable: true }, async (lock) => {
+      called = true; leader = !!lock;
+      if (lock) { await sleep(250); }                   // hold the lock briefly, then release
+    });
+    record('web_lock', 'PASS', 'leader=' + (leader ? 1 : 0) + ' name=ccgsc-leader if_available=1 callback=' + (called ? 1 : 0));
+  } catch (e) {
+    record('web_lock', 'FAIL', 'error=' + String(e && e.message || e).replace(/\s+/g, '_'));
+  }
+}
+
+// ---------------------------------------------------------------- verdict
+function finalise(reason) {
+  if (finalised) return;
+  finalised = true;
+  if (reason) log('ERROR ' + reason);
+  const mustPass = ['port_handshake', 'compile_bytes', 'worker_cap'];
+  const passOrSkip = ['sha256_in_iframe', 'ed25519_envelope'];
+  const missing = [];
+  mustPass.forEach(n => { if (!checks[n]) missing.push(n); });
+  passOrSkip.forEach(n => { if (!checks[n]) missing.push(n); });
+  let pass = missing.length === 0;
+  mustPass.forEach(n => { if (checks[n] && checks[n].status !== 'PASS') pass = false; });
+  passOrSkip.forEach(n => { if (checks[n] && checks[n].status !== 'PASS' && checks[n].status !== 'SKIP') pass = false; });
+  const line = pass ? 'SPIKE2 PASS' : 'SPIKE2 FAIL';
+  log(line);
+  document.title = line;
+  const report = CHECK_ORDER.filter(n => checks[n])
+    .map(n => 'CHECK ' + n + ' ' + checks[n].status + ' ' + checks[n].detail).join('\n') + '\n' + line + '\n';
+  fetch('/report', { method: 'POST', body: report }).catch(() => {});
+}
+
+// ---------------------------------------------------------------- boot
+const iframe = document.createElement('iframe');
+iframe.setAttribute('sandbox', 'allow-scripts');        // opaque origin, no allow-same-origin
+iframe.setAttribute('allow', 'webgpu');                  // §11 GPU gate experiment
+iframe.style.display = 'none';
+iframe.src = RUN_URL;
+document.body.appendChild(iframe);
+iframe.addEventListener('load', () => {
+  // THE bootstrap: one window.postMessage carrying the transferred port (opaque destination '*').
+  iframe.contentWindow.postMessage({ type: 'init', nonce: NONCE }, '*', [port2]);
+  port2 = null;                                          // port is gone from this realm now
+  bootPosted = true;
+  // Second-bootstrap probe, sent in the SAME task as the first bootstrap. Per-window message
+  // ordering is FIFO-guaranteed, so the runner MUST refuse this one (one bootstrap per frame).
+  try {
+    const c2 = new MessageChannel();
+    iframe.contentWindow.postMessage({ type: 'init', nonce: 'probe-second-bootstrap' }, '*', [c2.port2]);
+    log('INFO second bootstrap probe sent (the runner must refuse it)');
+  } catch (e) { log('INFO second bootstrap probe could not be sent: ' + e); }
+  setTimeout(makeFakeIframe, 120);                       // forged window message probe
+  setTimeout(emitHandshakeCheck, 20000);                 // safety net (late, never races the forgery)
+});
+log('parent origin=' + location.origin + ' secure=' + window.isSecureContext +
+    ' hw=' + (navigator.hardwareConcurrency || 0) + ' run_origin=' + RUN_ORIGIN);
+runWebLockCheck();                                       // check 7 runs independently
+setTimeout(() => finalise('watchdog: runner did not finish in 90 s'), 90000);
+</script>
+</body></html>
+<!-- END OF FILE parent.html -->

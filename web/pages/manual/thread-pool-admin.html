@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- WO-HC-WEB-01 manual/thread-pool-admin.html - Full Reference Manual for thread-pool-admin.html -->
+  <!-- Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17 -->
+  <!-- Truth: F:/tmp/hcwork/ADMIN_MANUALS_SOURCE.md sec 4 (WWPP-R38.5, WWPP-R40.3) -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual: Thread (WW) Pool Admin</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- Shared Navigation Bar Mount -->
+  <header id="ccgsc-nav" aria-label="Global CCGSC Navigation"></header>
+
+  <div class="container" style="padding-top: 24px;">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">
+          Manual: thread-pool-admin.html
+          <span class="tier-badge tier-3">Tier 3 Detail Reference</span>
+        </h1>
+        <p class="page-desc">
+          Full detail and every setting of the Web Thread Pool, where the unit of work is one task on any web worker thread of any registered tab.
+          The Pool Admin allows options, sets limits and sets the pool default; developers only request inside the allowance (WWPP-R38.5, WWPP-R27.1).
+        </p>
+      </div>
+      <div>
+        <a href="../thread-pool-admin.html" class="btn btn-primary">&larr; Back to Live Thread Pool Admin</a>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h2 class="admin-section-title">Sections List</h2>
+      </div>
+      <div class="admin-section-body">
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          <code>#general</code> General &bull; <code>#workers</code> Workers per tab &bull; <code>#guards</code> Device guards &bull; <code>#gpu</code> GPU &bull; <code>#scheduling</code> Scheduling and queue &bull; <code>#verification</code> Verification and tamper (all 4 measures) &bull; <code>#p2p</code> P2P sharing &bull; <code>#dew</code> Dew and late results &bull; <code>#metrics</code> Metrics &bull; <code>#config</code> Config versions &bull; <code>#manual</code> Manual section.
+        </p>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h2 class="admin-section-title">All 67 Setting Rows (Web Thread Pool)</h2>
+      </div>
+      <div class="admin-section-body table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Label</th>
+              <th>Legend (Tooltip Text)</th>
+              <th>Type</th>
+              <th>Default</th>
+              <th>Range</th>
+              <th>Authority</th>
+              <th>WWPP ID</th>
+            </tr>
+          </thead>
+          <tbody id="manual-rows-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/nav/nav.js"></script>
+  <script type="module">
+    import { PAGE_SCHEMAS } from '../js/schema.js';
+    const schema = PAGE_SCHEMAS['thread-pool-admin'];
+    const tbody = document.getElementById('manual-rows-tbody');
+    tbody.innerHTML = schema.rows.map(r => `
+      <tr>
+        <td><code>${r.id}</code></td>
+        <td><strong>${r.label}</strong></td>
+        <td>${r.legend}</td>
+        <td><span class="range-badge">${r.type}</span></td>
+        <td><code>${r.default}</code></td>
+        <td>${r.range}</td>
+        <td>${r.whoMayChange}</td>
+        <td><code>${r.wwppId}</code></td>
+      </tr>
+    `).join('');
+  </script>
+
+</body>
+</html>
+<!-- END OF manual/thread-pool-admin.html -->
+

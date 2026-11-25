@@ -1,0 +1,28 @@
+{
+  "id": "test_multifile",
+  "version": 1,
+  "kind": "test-multifile",
+  "entry": "entry.js",
+  "sha256": "cad42af8adc2eef36025aebf07e8f6880cd641636d4e62035eef5eb6590e245a",
+  "layer": "TEST",
+  "files": [
+    {
+      "path": "entry.js",
+      "entry": true,
+      "sha256": "cad42af8adc2eef36025aebf07e8f6880cd641636d4e62035eef5eb6590e245a"
+    },
+    {
+      "path": "table.bin",
+      "sha256": "c9f7f6c975db1812bf6e2090d69a9533894444c2284832950b6075f0657d7812"
+    }
+  ],
+  "input": {
+    "kind": "test-multifile",
+    "n": 4
+  },
+  "output": {
+    "n": "input.n",
+    "bytes": "n*n little-endian f32 matrix bytes scaled by the table"
+  },
+  "note": "TEST layer only (D-W10-8): a synthetic two-file workload proving the multi-file path. Never shipped, never embedded by web/embed.go."
+}

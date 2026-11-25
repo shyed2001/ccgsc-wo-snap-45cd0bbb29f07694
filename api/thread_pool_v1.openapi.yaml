@@ -1,0 +1,625 @@
+# file: F:/tmp/wwpp/api/thread_pool_v1.openapi.yaml
+# author: hermes MiniMax-M3 for Claude Opus 5.5
+# date: 2026-11-17
+# status: DRAFT
+# basis: GRILL_WWPP_R1.md rows WWPP-R26.4, WWPP-R32.1..R32.9, WWPP-R33.1, WWPP-R34.1
+# scope: browser-thread worker pool control plane; no shared memory, no MPI.
+openapi: 3.1.0
+info:
+  title: WWPP Thread Pool API
+  version: 1.0.0-draft
+  summary: Schedule compute tasks onto browser thread-pool workers.
+  description: |
+    Developer control plane for the WWPP thread pool. Workers are browser tabs and
+    developer clients use REST/JSON, SSE and gRPC (R32.1). One job model serves every
+    caller (R32.2). Results arrive by cursor stream in as_completed order, SSE
+    task.done, signed webhook and zstd bulk download (R32.3). GPU is a worker
+    capability, never a separate pool (R33.1). An API key is exchanged for a
+    15-minute JWT (R32.4). Per-key quotas yield 429 with Retry-After, plus priority
+    classes (R32.5). Base path is /thread-pool/v1, additive-only within v1 (R32.6).
+    Artifacts are content-addressed by sha256 with resumable chunk upload (R32.7).
+    Errors are RFC 9457 problem+json (R32.8). Expired leases are retried and
+    reassigned, maxAttempts defaults to 3, and policy is partial, fail-fast or
+    threshold (R32.9). Batching uses batchSize and chunksize, with warnings[] for
+    undersized tasks (R34.1). Job ids are <serverId>.<poolId>.<jobId> (R26.4).
+servers:
+  - url: https://{host}/thread-pool/v1
+    description: "Thread-pool API root; the major version lives in the URL."
+    variables: {host: {default: api.example.org, description: "Deployment host name."}}
+tags: [{name: auth}, {name: artifacts}, {name: jobs}, {name: results}, {name: events}, {name: capabilities}]
+security: [{bearerAuth: []}]
+paths:
+  /auth/token:
+    post:
+      tags: [auth]
+      summary: Exchange a developer API key for a 15-minute JWT.
+      description: "API keys are shown once, stored hashed, revocable and scoped. The JWT is sent as an Authorization Bearer header on REST, SSE and gRPC calls. Optional OAuth2 client credentials for SSO is planned for a later release and is not part of v1."
+      security: []
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TokenRequest'}}}}
+      responses:
+        '200': {description: "Token issued.", content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh an access token.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/TokenRequest'}}}}
+      responses:
+        '200': {description: "Token refreshed.", content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /workers/anonymous:
+    post:
+      tags: [auth]
+      summary: Issue an anonymous contributor JWT without login.
+      description: Issues a short-lived contributor token for a synthetic store B user.
+      security: []
+      responses:
+        '200': {description: "Contributor token issued.", content: {application/json: {schema: {$ref: '#/components/schemas/TokenResponse'}}}}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /jobs/{jobId}/chain:
+    get:
+      tags: [jobs]
+      summary: Read the tamper-evidence chain for a job.
+      parameters: [{$ref: '#/components/parameters/JobId'}]
+      responses:
+        '200': {description: "Job chain.", content: {application/json: {schema: {$ref: '#/components/schemas/JobChain'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /merkle:checkpoints:
+    get:
+      tags: [capabilities]
+      summary: Read merkle checkpoints.
+      responses:
+        '200': {description: "Merkle checkpoints.", content: {application/json: {schema: {$ref: '#/components/schemas/MerkleCheckpoints'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/keys:
+    post:
+      tags: [auth]
+      summary: Create a scoped developer API key.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateKeyRequest'}}}}
+      responses:
+        '201': {description: "Key created.", content: {application/json: {schema: {$ref: '#/components/schemas/ApiKey'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+  /auth/keys/{keyId}:revoke:
+    post:
+      tags: [auth]
+      summary: Revoke a developer API key.
+      description: "Store A administrators revoke the hashed key id. Existing JWTs and future exchanges become unauthorized."
+      parameters:
+        - {name: keyId, in: path, required: true, schema: {type: string}}
+        - {$ref: '#/components/parameters/CSRFToken'}
+      responses:
+        '200': {description: "Key revoked.", content: {application/json: {schema: {$ref: '#/components/schemas/RevokeKeyResponse'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /artifacts:
+    put:
+      tags: [artifacts]
+      summary: Upload a content-addressed artifact by sha256, in resumable chunks.
+      description: |
+        The artifact id is the lowercase hex sha256 of the complete object. Uploads are
+        chunked and resumable: send one chunk per request with Upload-Offset and
+        Content-Range, and the reply carries the next expected offset, so a dropped
+        connection resumes exactly where it stopped. Re-sending an accepted chunk is
+        idempotent. A finished artifact is immutable and is cached by hash inside
+        worker tabs. Payloads below 256 KiB may instead be inlined in the job request.
+      parameters:
+        - {name: X-Artifact-Sha256, in: header, required: true, description: "Lowercase hex sha256 of the complete object.", schema: {type: string, pattern: '^[0-9a-f]{64}$'}}
+        - {name: Upload-Offset, in: header, required: true, description: "Byte offset at which this chunk starts.", schema: {type: integer, minimum: 0}}
+        - {name: Content-Range, in: header, required: false, description: "Chunk range, for example bytes 0-65535/1048576.", schema: {type: string}}
+        - {name: Upload-Length, in: header, required: false, description: "Total artifact length in bytes when known up front.", schema: {type: integer, minimum: 0}}
+      requestBody: {required: true, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+      responses:
+        '200': {description: "Chunk accepted and the upload is still incomplete.", headers: {Upload-Offset: {description: "Next expected byte offset.", schema: {type: integer, minimum: 0}}}, content: {application/json: {schema: {$ref: '#/components/schemas/Artifact'}}}}
+        '201': {description: "Artifact complete and content-addressed.", content: {application/json: {schema: {$ref: '#/components/schemas/Artifact'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {description: "Artifact rejected by the upload scanner.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /artifacts/{artifactId}:
+    get:
+      tags: [artifacts]
+      summary: Download an artifact.
+      parameters:
+        - {name: artifactId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: "Artifact bytes.", headers: {X-Artifact-Sha256: {schema: {type: string}}}, content: {application/octet-stream: {schema: {type: string, format: binary}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+    delete:
+      tags: [artifacts]
+      summary: Remove this caller's artifact reference.
+      description: |
+        T100 (owner decision 2026-11-21, option A): the blob is content-addressed once per sha256 and every owner
+        subject holds a reference row. The delete removes only the caller's reference and reports how many references
+        remain; the blob itself is deleted when no reference remains. A caller without a reference is refused with 403,
+        and an unknown artifact answers 404.
+      parameters:
+        - {name: artifactId, in: path, required: true, schema: {type: string}}
+      responses:
+        '200': {description: "Reference removed.", content: {application/json: {schema: {$ref: '#/components/schemas/ArtifactReferenceDelete'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+        '404': {$ref: '#/components/responses/NotFound'}
+  /admin/reviews:
+    get:
+      tags: [artifacts]
+      summary: Read the artifact review queue.
+      parameters: [{name: state, in: query, schema: {type: string}}, {name: limit, in: query, schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}]
+      responses:
+        '200': {description: Review queue.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/reviews/{action}:
+    get:
+      tags: [artifacts]
+      summary: Read one artifact review record.
+      parameters: [{$ref: '#/components/parameters/ArtifactId'}]
+      responses:
+        '200': {description: Artifact review record.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    post:
+      tags: [artifacts]
+      summary: Approve, reject, or rescan an artifact.
+      parameters: [{$ref: '#/components/parameters/ArtifactAction'}, {$ref: '#/components/parameters/CSRFToken'}]
+      responses:
+        '200': {description: Updated artifact review record.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /admin/upload-scan:
+    get:
+      tags: [artifacts]
+      summary: Read upload scan configuration.
+      responses:
+        '200': {description: Upload scan configuration.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+    put:
+      tags: [artifacts]
+      summary: Replace upload scan configuration.
+      parameters: [{$ref: '#/components/parameters/CSRFToken'}]
+      responses:
+        '200': {description: Upload scan configuration.}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '403': {$ref: '#/components/responses/Forbidden'}
+  /jobs:
+    post:
+      tags: [jobs]
+      summary: Submit a job.
+      description: |
+        One job model for every caller: module artifact ids plus tasks given inline or
+        derived from a split spec. batchSize groups tasks per worker round trip and
+        chunksize maps artifacts to per-task slices; POST /jobs:validate warns when
+        tasks are too small. needs is cpu, gpu or gpu-preferred; GPU tasks run only on
+        GPU-capable tabs and ship WGSL with JS or WASM. policy is partial, fail-fast or
+        threshold. maxAttempts defaults to 3; expired leases are retried and reassigned,
+        poison tasks are quarantined after 3 worker crashes, and results arriving after
+        job end go to the dead-letter store. Send Idempotency-Key to make submission
+        safely repeatable.
+      parameters:
+        - {$ref: '#/components/parameters/IdempotencyKey'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/JobCreateRequest'}}}}
+      responses:
+        '201': {description: "Job accepted and queued.", headers: {Location: {description: "URL of the created job.", schema: {type: string, format: uri-reference}}}, content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /jobs/{jobId}:
+    get:
+      tags: [jobs]
+      summary: Fetch job state, progress and lint warnings.
+      parameters:
+        - {$ref: '#/components/parameters/JobId'}
+      responses:
+        '200': {description: "Job snapshot.", content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /jobs/{jobId}:cancel:
+    post:
+      tags: [jobs]
+      summary: Cancel a queued or running job.
+      description: "Running tasks are asked to stop and results already produced stay retrievable. Cancellation is idempotent and never deletes the job."
+      parameters:
+        - {$ref: '#/components/parameters/JobId'}
+      requestBody: {required: false, content: {application/json: {schema: {$ref: '#/components/schemas/CancelRequest'}}}}
+      responses:
+        '202': {description: "Cancellation accepted.", content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        '200': {description: "Job was already in a terminal state.", content: {application/json: {schema: {$ref: '#/components/schemas/Job'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /jobs/{jobId}/results:
+    get:
+      tags: [results]
+      summary: Read task results in as_completed order.
+      description: "Results are returned in completion order, not submission order. Late results, meaning a task that finished after the job ended, are still served from the dead-letter store. Page with the opaque cursor; nextCursor stays valid while results are retained."
+      parameters:
+        - {$ref: '#/components/parameters/JobId'}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: limit, in: query, required: false, description: "Maximum number of results per page.", schema: {type: integer, minimum: 1, maximum: 1000, default: 100}}
+        - {name: includeFailed, in: query, required: false, description: "Include failed task records.", schema: {type: boolean, default: true}}
+      responses:
+        '200': {description: "One page of results.", content: {application/json: {schema: {$ref: '#/components/schemas/ResultsPage'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /jobs/{jobId}/results:bulk:
+    get:
+      tags: [results]
+      summary: Download all job results as one zstd-compressed tar archive.
+      description: "Bulk download is intended for job end; members are named by sha256 so results stay content-addressed. X-Artifact-Sha256 identifies the archive bytes themselves."
+      parameters:
+        - {$ref: '#/components/parameters/JobId'}
+        - {name: format, in: query, required: false, description: "Export representation.", schema: {type: string, enum: [ndjson, json, zstd-tar], default: ndjson}}
+        - {$ref: '#/components/parameters/Cursor'}
+        - {name: limit, in: query, required: false, description: "Maximum records in this page.", schema: {type: integer, minimum: 1, maximum: 10000, default: 1000}}
+        - {name: includeFailed, in: query, required: false, description: "Include failed task records.", schema: {type: boolean, default: true}}
+        - {name: state, in: query, required: false, schema: {type: string, enum: [done, failed]}}
+        - {name: verified, in: query, required: false, schema: {type: boolean}}
+      responses:
+        '200':
+          description: "Requested results representation."
+          headers:
+            Content-Encoding: {description: "Compression applied to the archive.", schema: {type: string, const: zstd}}
+            X-Artifact-Sha256: {description: "sha256 of the archive bytes.", schema: {type: string, pattern: '^[0-9a-f]{64}$'}}
+            Content-Length: {description: "Archive size in bytes.", schema: {type: integer, minimum: 0}}
+            ETag: {description: "Entity tag for conditional retrieval.", schema: {type: string}}
+            X-Has-More: {schema: {type: boolean}}
+            X-Next-Cursor: {schema: {type: string}}
+          content:
+            application/zstd: {schema: {type: string, format: binary}}
+            application/x-ndjson: {schema: {type: string}}
+            application/json: {schema: {$ref: '#/components/schemas/ResultsPage'}}
+        '304': {description: "The representation is unchanged."}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '404': {$ref: '#/components/responses/NotFound'}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /events:
+    get:
+      tags: [events]
+      summary: Live server event stream over text/event-stream.
+      description: |
+        SSE frames carry an event name and a JSON data payload:
+          task.done    - a task finished; small result inline, large result by URL
+          task.failed  - a task exhausted its attempts; payload carries a problem
+          job.done     - the job reached a terminal state
+          worker.lost  - a worker tab vanished; its lease expires and tasks are reassigned
+        Resume a dropped connection with the Last-Event-ID header.
+      parameters:
+        - {name: jobIds, in: query, required: false, description: "Restrict the stream to these job ids.", schema: {type: array, items: {type: string}}}
+        - {name: sessionIds, in: query, required: false, description: "Restrict the stream to these session ids.", schema: {type: array, items: {type: string}}}
+        - {name: types, in: query, required: false, description: "Filter by event type.", schema: {type: array, items: {type: string, enum: [task.done, task.failed, job.done, worker.lost]}}}
+        - {name: Last-Event-ID, in: header, required: false, description: "Resume the stream after this event id.", schema: {type: string}}
+      responses:
+        '200': {description: "Event stream.", content: {text/event-stream: {schema: {$ref: '#/components/schemas/EventMessage'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /jobs:validate:
+    post:
+      tags: [jobs]
+      summary: Lint a job request without submitting it.
+      description: "Returns warnings[] rather than errors, for example a notice that tasks are too small for this device class and should be batched, plus quota and limit advisories, so callers can fix a request before submitting it."
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/JobCreateRequest'}}}}
+      responses:
+        '200': {description: "Lint result.", content: {application/json: {schema: {$ref: '#/components/schemas/ValidationResult'}}}}
+        '400': {$ref: '#/components/responses/BadRequest'}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+  /capabilities:
+    get:
+      tags: [capabilities]
+      summary: Server limits, GPU support and per-key quotas.
+      responses:
+        '200': {description: "Capability snapshot for this server and pool.", content: {application/json: {schema: {$ref: '#/components/schemas/Capabilities'}}}}
+        '401': {$ref: '#/components/responses/Unauthorized'}
+        '429': {$ref: '#/components/responses/TooManyRequests'}
+webhooks:
+  taskDone:
+    post:
+      summary: Signed task.done callback to a developer server.
+      description: "The server POSTs each completed task to the subscribed developer URL. The signature covers the X-WWPP-Timestamp header plus a dot plus the raw body and is an HMAC-SHA256 over the subscription secret; verify it in constant time and reject stale timestamps. Non-2xx responses are retried with exponential backoff."
+      parameters:
+        - {name: X-WWPP-Signature, in: header, required: true, description: "Hex HMAC-SHA256 signature of timestamp and body.", schema: {type: string}}
+        - {name: X-WWPP-Timestamp, in: header, required: true, description: "Unix seconds when the delivery was signed.", schema: {type: string}}
+        - {name: X-WWPP-Delivery, in: header, required: true, description: "Unique delivery id for deduplication.", schema: {type: string}}
+        - {name: X-WWPP-Attempt, in: header, required: true, description: "One-based delivery attempt.", schema: {type: integer, minimum: 1, maximum: 5}}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/WebhookPayload'}}}}
+      responses:
+        '200': {description: "Callback accepted."}
+        '4XX': {description: "Delivery rejected and the server retries it."}
+components:
+  securitySchemes:
+    bearerAuth: {type: http, scheme: bearer, bearerFormat: JWT, description: "15-minute JWT obtained from POST /auth/token."}
+  parameters:
+    JobId: {name: jobId, in: path, required: true, description: "Job id in the form <serverId>.<poolId>.<jobId>.", schema: {type: string}}
+    ArtifactId: {name: artifactId, in: path, required: true, schema: {type: string}}
+    ArtifactAction: {name: action, in: path, required: true, schema: {type: string, description: "<artifactId> or <artifactId>:rescan"}}
+    CSRFToken: {name: X-CSRF-Token, in: header, required: true, description: "CSRF token for cookie-authenticated administrative writes.", schema: {type: string}}
+    Cursor: {name: cursor, in: query, required: false, description: "Opaque pagination cursor over as_completed results.", schema: {type: string}}
+    IdempotencyKey: {name: Idempotency-Key, in: header, required: false, description: "Client key; resubmitting the same key returns the original job.", schema: {type: string, maxLength: 255}}
+  headers:
+    RetryAfter: {description: "Seconds to wait before retrying, per RFC 9110.", schema: {type: integer, minimum: 1}}
+  responses:
+    BadRequest: {description: "Malformed or invalid request.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    Unauthorized: {description: "Missing, expired or invalid JWT.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    Forbidden: {description: "Scope or permission denied.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    NotFound: {description: "Resource does not exist.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    Conflict: {description: "State conflict, such as an idempotency-key mismatch or a job that is not cancellable.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+    TooManyRequests:
+      description: "Rate limit or quota exceeded; retry after the indicated delay."
+      headers: {Retry-After: {$ref: '#/components/headers/RetryAfter'}}
+      content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}
+    InternalError: {description: "Unexpected server error.", content: {application/problem+json: {schema: {$ref: '#/components/schemas/Problem'}}}}
+  schemas:
+    Problem:
+      type: object
+      title: RFC 9457 problem details
+      description: "Error payload shared by REST, SSE and gRPC status details."
+      required: [type, title, status, code, traceId, retryable]
+      properties:
+        type: {type: string, format: uri-reference, default: 'about:blank'}
+        title: {type: string}
+        status: {type: integer, minimum: 100, maximum: 599}
+        detail: {type: string}
+        instance: {type: string, format: uri-reference}
+        code: {type: string, description: "Stable machine-readable code from one documented list shared by REST, SSE and gRPC."}
+        traceId: {type: string}
+        retryable: {type: boolean}
+    TokenRequest:
+      type: object
+      required: [apiKey]
+      properties:
+        apiKey: {type: string, description: "Raw developer API key; shown once and stored hashed."}
+        scopes: {type: array, description: "Requested scopes, intersected with the key scopes.", items: {type: string}}
+    CreateKeyRequest:
+      type: object
+      required: [user, scopes]
+      properties:
+        user: {$ref: '#/components/schemas/AuthUser'}
+        scopes: {type: array, items: {type: string}}
+    ApiKey:
+      type: object
+      required: [apiKey, keyId]
+      properties:
+        apiKey: {type: string}
+        keyId: {type: string}
+        user: {$ref: '#/components/schemas/AuthUser'}
+    RevokeKeyResponse:
+      type: object
+      required: [keyId, revoked]
+      properties:
+        keyId: {type: string, description: "Hashed key id that was revoked."}
+        revoked: {type: boolean, const: true}
+    AuthUser:
+      type: object
+      required: [id, accountStore, roles]
+      properties:
+        id: {type: string}
+        accountStore: {type: string}
+        roles: {type: array, items: {type: string}}
+    TokenResponse:
+      type: object
+      required: [accessToken, tokenType, expiresIn, expiresAt]
+      properties:
+        accessToken: {type: string}
+        tokenType: {type: string, const: Bearer}
+        expiresIn: {type: integer, description: "Token lifetime in seconds.", default: 900}
+        expiresAt: {type: string, format: date-time}
+        scopes: {type: array, items: {type: string}}
+        serverId: {type: string, description: "Server id component of a job id.", example: s1}
+        poolId: {type: string}
+    ArtifactReferenceDelete:
+      type: object
+      description: "The outcome of one artifact reference delete (T100)."
+      required: ["artifactId", "removed", "blobDeleted", "remainingReferences"]
+      properties:
+        artifactId: {type: string, description: "Artifact id the delete addressed."}
+        sha256: {type: string, pattern: "^[0-9a-f]{64}$"}
+        removed: {type: boolean, description: "True when the caller held a reference and it was removed."}
+        blobDeleted: {type: boolean, description: "True when no reference remained and the blob was deleted."}
+        remainingReferences: {type: integer, minimum: 0, description: "References that remain after this delete."}
+    Artifact:
+      type: object
+      required: [artifactId, sha256, sizeBytes, complete]
+      properties:
+        artifactId: {type: string, description: "Artifact id, identical to the lowercase hex sha256."}
+        sha256: {type: string, pattern: '^[0-9a-f]{64}$'}
+        sizeBytes: {type: integer, minimum: 0}
+        receivedBytes: {type: integer, minimum: 0}
+        nextOffset: {type: integer, minimum: 0}
+        complete: {type: boolean}
+        contentType: {type: string}
+        createdAt: {type: string, format: date-time}
+        expiresAt: {type: string, format: date-time}
+    TaskSpec:
+      type: object
+      required: [taskId]
+      properties:
+        taskId: {type: string}
+        input: {type: object, description: "Inline input below 256 KiB, or a reference to a stored artifact.", properties: {inline: {type: string, contentEncoding: base64}, json: {type: object, additionalProperties: true}, artifactId: {type: string, pattern: '^[0-9a-f]{64}$'}}}
+        timeoutMs: {type: integer, minimum: 1}
+    SplitSpec:
+      type: object
+      required: [artifactId, count]
+      properties:
+        artifactId: {type: string, pattern: '^[0-9a-f]{64}$'}
+        count: {type: integer, minimum: 1, maximum: 10000, description: "Number of nonempty tasks derived from the artifact; must match chunksize when supplied."}
+        format: {type: string, enum: [bytes, range, rows, records], default: bytes, description: "Implemented: bytes and range. Range artifacts contain integer start/end (end exclusive). rows/records remain unsupported."}
+        chunksize: {type: integer, minimum: 1, description: "Slice size per task in bytes, or integer units for range; final slice may be shorter. Omit to balance count slices."}
+    WebhookConfig:
+      type: object
+      required: [url, secret]
+      properties:
+        url: {type: string, format: uri}
+        secret: {type: string, minLength: 16}
+        events: {type: array, items: {type: string, enum: [job.done, job.failed]}, default: [job.done, job.failed]}
+    JobChain:
+      type: object
+      required: [jobId, mode, head, entries, verification]
+      properties:
+        jobId: {type: string}
+        mode: {type: string}
+        head: {type: string}
+        entries: {type: array, items: {type: object, properties: {seq: {type: integer}, jobId: {type: string}, taskId: {type: string}, resultIndex: {type: integer}, resultSha256: {type: string}, workerId: {type: string}, at: {type: string, format: date-time}, prev: {type: string}, hash: {type: string}}}}
+        verification: {type: object, properties: {jobId: {type: string}, valid: {type: boolean}, mode: {type: string}, entries: {type: integer}, head: {type: string}, reason: {type: string}, brokenAt: {type: integer}}}
+    MerkleCheckpoints:
+      type: object
+      properties:
+        latestRoot: {type: string}
+        checkpoints: {type: array, items: {type: object, properties: {seq: {type: integer}, at: {type: string, format: date-time}, root: {type: string}, prevRoot: {type: string}, prevHash: {type: string}, hash: {type: string}, jobCount: {type: integer}, leaves: {type: array, items: {type: object, properties: {jobId: {type: string}, tip: {type: string}}}}}}}
+        verifications: {type: array, items: {type: object, properties: {seq: {type: integer}, valid: {type: boolean}, root: {type: string}, recomputedRoot: {type: string}, jobCount: {type: integer}, reason: {type: string}}}}
+    JobCreateRequest:
+      type: object
+      required: [moduleArtifactIds]
+      properties:
+        moduleArtifactIds: {type: array, minItems: 1, description: "sha256 artifact ids of the module code, WASM or JS, that workers must run.", items: {type: string, pattern: '^[0-9a-f]{64}$'}}
+        moduleSha256: {type: string, pattern: '^[0-9a-f]{64}$', description: "Convenience alias for a single module artifact."}
+        tasks: {type: array, description: "Inline task list, mutually exclusive with split.", items: {$ref: '#/components/schemas/TaskSpec'}}
+        split: {$ref: '#/components/schemas/SplitSpec'}
+        batchSize: {type: integer, minimum: 1, maximum: 10000, default: 1, description: "Tasks grouped per worker round trip and slot. Assignment.batch contains every signed member; submit results per member."}
+        chunksize: {type: object, description: "For split only: map the split artifact id to its slice size (must agree with split.chunksize). Other entries and inline-task chunk maps are unsupported.", additionalProperties: {type: integer, minimum: 1}}
+        needs: {type: string, enum: [cpu, gpu, gpu-preferred], default: cpu, description: "GPU tasks are scheduled only to GPU-capable tabs."}
+        policy: {type: string, enum: [partial, fail-fast, threshold], default: partial, description: "partial keeps going, fail-fast stops at the first failure, threshold stops above a failure ratio."}
+        threshold: {type: number, minimum: 0, maximum: 1, description: "Failure ratio that trips the threshold policy."}
+        maxAttempts: {type: integer, minimum: 1, maximum: 10, default: 3, description: "Attempts per task before quarantine."}
+        priority: {type: string, enum: [low, normal, high], default: normal, description: "Priority class; high is honoured only when the admin allows it."}
+        options: {type: object, properties: {taskTimeoutMs: {type: integer, minimum: 1}, maxTaskBytes: {type: integer, minimum: 1}, tags: {type: array, items: {type: string}}, toleranceCompare: {type: boolean}, comparatorArtifactId: {type: string}, tamperEvidence: {$ref: '#/components/schemas/TamperEvidenceOption'}, uploadChecks: {$ref: '#/components/schemas/UploadCheckOption'}, p2p: {$ref: '#/components/schemas/P2POptions'}, dew: {$ref: '#/components/schemas/DewOptions'}}}
+        webhook: {$ref: '#/components/schemas/WebhookConfig'}
+        metadata: {type: object, additionalProperties: true}
+    Job:
+      type: object
+      required: [jobId, state, createdAt, needs, policy, progress]
+      properties:
+        jobId: {type: string, description: "Job id in the form <serverId>.<poolId>.<jobId>."}
+        serverId: {type: string, example: s1}
+        poolId: {type: string}
+        state: {type: string, enum: [queued, running, completed, failed, partial, cancelled]}
+        createdAt: {type: string, format: date-time}
+        startedAt: {type: string, format: date-time}
+        finishedAt: {type: string, format: date-time}
+        needs: {type: string, enum: [cpu, gpu, gpu-preferred]}
+        policy: {type: string, enum: [partial, fail-fast, threshold]}
+        maxAttempts: {type: integer}
+        priority: {type: string, enum: [low, normal, high]}
+        progress: {type: object, required: [total, completed, failed, queued, running], properties: {total: {type: integer}, completed: {type: integer}, failed: {type: integer}, queued: {type: integer}, running: {type: integer}}}
+        warnings: {type: array, items: {$ref: '#/components/schemas/Warning'}}
+        resultCursor: {type: string}
+        configVersion: {type: string}
+        sessionId: {type: string}
+        rerunPercent: {type: number}
+        groupBy: {type: object, additionalProperties: true}
+        pin: {type: object, additionalProperties: true}
+        chosenPolicy: {type: object, additionalProperties: true}
+        chainMode: {type: string}
+        chainHead: {type: string}
+        chainEntries: {type: integer}
+        auditGap: {type: boolean}
+    TaskResult:
+      type: object
+      required: [jobId, taskId, status]
+      properties:
+        jobId: {type: string}
+        taskId: {type: string}
+        status: {type: string, enum: [done, failed]}
+        attempts: {type: integer}
+        durationMs: {type: integer}
+        output: {type: object, description: "Small result inline, large result by URL or artifact id.", properties: {inline: {type: string, contentEncoding: base64}, json: {type: object, additionalProperties: true}, url: {type: string, format: uri}, artifactId: {type: string, pattern: '^[0-9a-f]{64}$'}}}
+        error: {$ref: '#/components/schemas/Problem'}
+        completedAt: {type: string, format: date-time}
+        late: {type: boolean, description: "True when the result arrived after job end, in the dead-letter store."}
+        canaryRan: {type: boolean}
+        canaryState: {type: string}
+        canaryOk: {type: boolean}
+        trustComplete: {type: boolean}
+        rerun: {type: boolean}
+        rerunOk: {type: boolean}
+        flagged: {type: boolean}
+        flagReason: {type: string}
+    WebhookPayload:
+      type: object
+      required: [event, deliveryId, jobId, poolId, state, at, progress]
+      properties:
+        event: {type: string, enum: [job.done, job.failed]}
+        deliveryId: {type: string}
+        jobId: {type: string}
+        poolId: {type: string}
+        state: {type: string}
+        at: {type: string, format: date-time}
+        progress: {type: object, additionalProperties: true}
+        resultsUrl: {type: string, format: uri-reference}
+        bulkUrl: {type: string, format: uri-reference}
+    ResultsPage:
+      type: object
+      required: [items, order]
+      properties:
+        order: {type: string, const: as_completed}
+        items: {type: array, items: {$ref: '#/components/schemas/TaskResult'}}
+        nextCursor: {type: string}
+        hasMore: {type: boolean}
+        chainHead: {type: string}
+        chainEntries: {type: integer}
+        auditGap: {type: boolean}
+    EventMessage:
+      type: object
+      required: [type, jobId, at]
+      properties:
+        type: {type: string, enum: [task.done, task.failed, job.done, worker.lost, reauth]}
+        jobId: {type: string}
+        taskId: {type: string}
+        workerId: {type: string}
+        at: {type: string, format: date-time}
+        eventId: {type: string}
+        leaseReceipt: {$ref: '#/components/schemas/LeaseReceipt'}
+        result: {$ref: '#/components/schemas/TaskResult'}
+        error: {$ref: '#/components/schemas/Problem'}
+        job: {$ref: '#/components/schemas/Job'}
+    Warning:
+      type: object
+      required: [code, message]
+      properties:
+        code: {type: string, example: tasks-too-small}
+        severity: {type: string, enum: [info, warning, error], default: warning}
+        message: {type: string}
+        path: {type: string}
+        hint: {type: string}
+    ValidationResult:
+      type: object
+      required: [valid, warnings]
+      properties:
+        valid: {type: boolean}
+        warnings: {type: array, items: {$ref: '#/components/schemas/Warning'}}
+        estimatedTasks: {type: integer}
+        deviceClasses: {type: array, items: {type: string}}
+    CancelRequest:
+      type: object
+      properties:
+        reason: {type: string}
+        graceMs: {type: integer, minimum: 0}
+    Capabilities:
+      type: object
+      required: [serverId, poolId, serverLimits, gpu, quotas]
+      properties:
+        serverId: {type: string, example: s1}
+        poolId: {type: string}
+        apiVersion: {type: string}
+        serverLimits: {type: object, properties: {maxTasksPerJob: {type: integer}, maxInlineBytes: {type: integer, description: "Inline payload ceiling; 262144 bytes equals 256 KiB."}, maxBatchSize: {type: integer}, maxTaskBytes: {type: integer}, maxTaskDurationMs: {type: integer}, maxArtifactBytes: {type: integer}, defaultBatchSize: {type: object, description: "Server default batch size per device class.", additionalProperties: {type: integer, minimum: 1}}}}
+        gpu: {type: object, description: "GPU is a worker capability; there is no separate GPU pool.", properties: {supported: {type: boolean}, webgpuRequired: {type: boolean, default: true}, adapter: {type: string}, limits: {type: object, additionalProperties: true}, taskTimeoutMs: {type: integer}, memoryLimitBytes: {type: integer}}}
+        quotas: {type: object, description: "Per-API-key quotas; exceeding one yields 429 with Retry-After.", properties: {runningJobs: {type: integer}, queuedTasks: {type: integer}, requestsPerMinute: {type: integer}, taskBytes: {type: integer}, taskTimeMs: {type: integer}, priorityHighAllowed: {type: boolean}}}
+        webhooks: {type: object, properties: {enabled: {type: boolean}, allowPrivateIPs: {type: boolean}}}
+        priorityClasses: {type: array, items: {type: string, enum: [low, normal, high]}}
+        sessions: {type: object, properties: {supported: {type: boolean}, maxTabsPerSession: {type: integer}, maxHostsPerSession: {type: integer}, maxSessionTtlSeconds: {type: integer}, warmInitializerSupported: {type: boolean}, warmTimeoutMs: {type: integer}}}
+        rerun: {type: object, properties: {available: {type: boolean}, defaultPercent: {type: number}, maxPercent: {type: number}}}
+        tamperEvidence: {type: object, properties: {securityLogEnabled: {type: boolean}, perJobChainAvailable: {type: boolean}, merkleAvailable: {type: boolean}}}
+        uploadChecks: {type: object, properties: {formatSizeHash: {type: boolean}, importPermissionScan: {type: boolean}, reviewGate: {type: boolean}, malwareAbuseScan: {type: boolean}}}
+        p2p: {type: object, properties: {enabled: {type: boolean}, shareMode: {type: string}, resultsToServer: {type: boolean}}}
+        dew: {type: object, properties: {enabled: {type: boolean}, receiptWindowSeconds: {type: integer}, receiptAlgorithm: {type: string}}}

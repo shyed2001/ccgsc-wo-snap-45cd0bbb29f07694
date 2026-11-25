@@ -1,0 +1,426 @@
+# file: F:/tmp/wwpp/api/process_pool_v1.openapi.yaml
+# author: hermes MiniMax-M3 for Claude Opus 5.5
+# date: 2026-11-17
+# status: DRAFT
+# basis: GRILL_WWPP_R1.md rows WWPP-R32.1..R32.9, WWPP-R33.1, WWPP-R34.1, WWPP-R35.1, WWPP-R35.2, WWPP-R36.1, WWPP-R36.2
+# scope: browser process pool control plane (tab / tab host unit); no shared memory, no MPI.
+# reuse: auth, artifacts, jobs, results, events, errors and capabilities are copied from thread_pool_v1.openapi.yaml with identical schema names; process-pool additions are additive optional fields only.
+openapi: 3.1.0
+info:
+  title: "WWPP Process Pool API"
+  version: "1.0.0-draft"
+  summary: "Schedule compute tasks onto browser process-pool workers."
+  description: |
+    Developer control plane for the WWPP process pool, where a worker unit is a browser tab or
+    a tab host (wwHost). REST/JSON for commands, Server-Sent Events for live events and gRPC
+    for high-volume clients, for both pool APIs (R32.1). One job model serves every caller, and
+    the process pool adds an explicit session API for power users: open a session that holds
+    tabs, stream tasks in batches, close the session (R32.2). Results arrive by cursor stream
+    in as_completed order, SSE task.done, signed webhook and zstd bulk download (R32.3). GPU
+    is a worker capability, never a separate pool (R33.1). An API key is exchanged for a
+    15-minute JWT (R32.4). Per-key quotas yield 429 with Retry-After, plus priority classes
+    (R32.5). Base path is /process-pool/v1, additive-only within v1 (R32.6). Artifacts are
+    content-addressed by sha256 with resumable chunk upload (R32.7). Errors are RFC 9457
+    problem+json (R32.8). Expired leases are retried and reassigned, maxAttempts defaults to 3,
+    policy is partial, fail-fast or threshold (R32.9). Batching uses batchSize and chunksize,
+    with warnings[] for undersized tasks (R34.1). rerunPercent asks the server to re-send that
+    percentage of tasks to other workers for exact-hash comparison; an admin may refuse the
+    request (R35.1). Tamper evidence is an admin option: security log, sha256 of every accepted
+    result, optional per-job chain or Merkle tree (R35.2). Upload checks on developer code are
+    optional and admin-configurable (R36.1). Peer-to-peer sharing is hash-addressed only and
+    results always go to the server; dew signs lease receipts with a 24 h window by default
+    (R36.2). Job ids are <serverId>.<poolId>.<jobId> (R26.4).
+servers:
+  - url: "https://{host}/process-pool/v1"
+    description: "Process-pool API root; the major version lives in the URL."
+    variables: {"host": {"default": "api.example.org", "description": "Deployment host name."}}
+tags: [{"name": "auth"}, {"name": "artifacts"}, {"name": "jobs"}, {"name": "results"}, {"name": "events"}, {"name": "capabilities"}, {"name": "sessions"}]
+security: [{"bearerAuth": []}]
+paths:
+  /auth/token:
+    post:
+      tags: ["auth"]
+      summary: "Exchange a developer API key for a 15-minute JWT."
+      description: "API keys are shown once, stored hashed, revocable and scoped. The JWT is sent as an Authorization Bearer header on REST, SSE and gRPC calls. Optional OAuth2 client credentials for SSO is planned for a later release and is not part of v1."
+      security: []
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}}
+      responses:
+        "200": {"description": "Token issued.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}
+        "400": {"$ref": "#/components/responses/BadRequest"}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /auth/refresh:
+    post:
+      tags: ["auth"]
+      summary: "Refresh an access token."
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenRequest"}}}}
+      responses:
+        "200": {"description": "Token refreshed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+  /workers/anonymous:
+    post:
+      tags: ["auth"]
+      summary: "Issue an anonymous contributor JWT without login."
+      description: "Issues a short-lived contributor token for a synthetic store B user."
+      security: []
+      responses:
+        "200": {"description": "Contributor token issued.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/TokenResponse"}}}}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /jobs/{jobId}/chain:
+    get:
+      tags: ["jobs"]
+      summary: "Read the tamper-evidence chain for a job."
+      parameters: [{"$ref": "#/components/parameters/JobId"}]
+      responses:
+        "200": {"description": "Job chain.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobChain"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+  /merkle:checkpoints:
+    get:
+      tags: ["capabilities"]
+      summary: "Read Merkle checkpoints."
+      parameters: [{"name": "limit", "in": "query", "required": false, "schema": {"type": "integer", "minimum": 0, "maximum": 1000}}]
+      responses:
+        "200": {"description": "Merkle checkpoints.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/MerkleCheckpoints"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+  /auth/keys:
+    post:
+      tags: ["auth"]
+      summary: "Create a scoped developer API key."
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CreateKeyRequest"}}}}
+      responses:
+        "201": {"description": "Key created.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ApiKey"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+  /auth/keys/{keyId}:revoke:
+    post:
+      tags: ["auth"]
+      summary: "Revoke a developer API key."
+      description: "Store A administrators revoke the hashed key id. Existing JWTs and future exchanges become unauthorized."
+      parameters:
+        - {"name": "keyId", "in": "path", "required": true, "schema": {"type": "string"}}
+        - {"$ref": "#/components/parameters/CSRFToken"}
+      responses:
+        "200": {"description": "Key revoked.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/RevokeKeyResponse"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+  /artifacts:
+    put:
+      tags: ["artifacts"]
+      summary: "Upload a content-addressed artifact by sha256, in resumable chunks."
+      description: "The artifact id is the lowercase hex sha256 of the complete object. Uploads are chunked and resumable: send one chunk per request with Upload-Offset and Content-Range, and the reply carries the next expected offset, so a dropped connection resumes exactly where it stopped. Re-sending an accepted chunk is idempotent. A finished artifact is immutable and is cached by hash inside worker tabs. Payloads below 256 KiB may instead be inlined in the job request. A warm initializer artifact uses this same route and is loaded into each tab of a session before its first task."
+      parameters:
+        - {"name": "X-Artifact-Sha256", "in": "header", "required": true, "description": "Lowercase hex sha256 of the complete object.", "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}
+        - {"name": "Upload-Offset", "in": "header", "required": true, "description": "Byte offset at which this chunk starts.", "schema": {"type": "integer", "minimum": 0}}
+        - {"name": "Content-Range", "in": "header", "required": false, "description": "Chunk range, for example bytes 0-65535/1048576.", "schema": {"type": "string"}}
+        - {"name": "Upload-Length", "in": "header", "required": false, "description": "Total artifact length in bytes when known up front.", "schema": {"type": "integer", "minimum": 0}}
+      requestBody: {"required": true, "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
+      responses:
+        "200": {"description": "Chunk accepted and the upload is still incomplete.", "headers": {"Upload-Offset": {"description": "Next expected byte offset.", "schema": {"type": "integer", "minimum": 0}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Artifact"}}}}
+        "201": {"description": "Artifact complete and content-addressed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Artifact"}}}}
+        "400": {"$ref": "#/components/responses/BadRequest"}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "422": {"description": "Artifact rejected by the upload scanner.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /artifacts/{artifactId}:
+    get:
+      tags: ["artifacts"]
+      summary: "Download an artifact."
+      parameters:
+        - {"name": "artifactId", "in": "path", "required": true, "schema": {"type": "string"}}
+      responses:
+        "200": {"description": "Artifact bytes.", "headers": {"X-Artifact-Sha256": {"schema": {"type": "string"}}}, "content": {"application/octet-stream": {"schema": {"type": "string", "format": "binary"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+    delete:
+      tags: ["artifacts"]
+      summary: "Remove this caller's artifact reference."
+      description: "T100 (owner decision 2026-11-21, option A): the blob is content-addressed once per sha256 and every owner subject holds a reference row. The delete removes only the caller's reference and reports how many references remain; the blob itself is deleted when no reference remains. A caller without a reference is refused with 403, and an unknown artifact answers 404."
+      parameters:
+        - {"name": "artifactId", "in": "path", "required": true, "schema": {"type": "string"}}
+      responses:
+        "200": {"description": "Reference removed.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ArtifactReferenceDelete"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+  /admin/reviews:
+    get:
+      tags: ["artifacts"]
+      summary: "Read the artifact review queue."
+      parameters: [{"name": "state", "in": "query", "schema": {"type": "string"}}, {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}]
+      responses:
+        "200": {"description": "Review queue."}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+  /admin/reviews/{action}:
+    get:
+      tags: ["artifacts"]
+      summary: "Read one artifact review record."
+      parameters: [{"$ref": "#/components/parameters/ArtifactId"}]
+      responses:
+        "200": {"description": "Artifact review record."}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+    post:
+      tags: ["artifacts"]
+      summary: "Approve, reject, or rescan an artifact."
+      parameters: [{"$ref": "#/components/parameters/ArtifactAction"}, {"$ref": "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {"description": "Updated artifact review record."}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+  /admin/upload-scan:
+    get:
+      tags: ["artifacts"]
+      summary: "Read upload scan configuration."
+      responses:
+        "200": {"description": "Upload scan configuration."}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+    put:
+      tags: ["artifacts"]
+      summary: "Replace upload scan configuration."
+      parameters: [{"$ref": "#/components/parameters/CSRFToken"}]
+      responses:
+        "200": {"description": "Upload scan configuration."}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "403": {"$ref": "#/components/responses/Forbidden"}
+  /jobs:
+    post:
+      tags: ["jobs"]
+      summary: "Submit a job."
+      description: "One job model for every caller: module artifact ids plus tasks given inline or derived from a split spec. batchSize groups tasks per worker round trip and chunksize maps artifacts to per-task slices; POST /jobs:validate warns when tasks are too small. needs is cpu, gpu or gpu-preferred; GPU tasks run only on GPU-capable tabs and ship WGSL with JS or WASM. policy is partial, fail-fast or threshold. maxAttempts defaults to 3; expired leases are retried and reassigned, poison tasks are quarantined after 3 worker crashes, and results arriving after job end go to the dead-letter store. Process-pool additions: groupBy keeps a group of tasks inside one process, pin binds the job to a session, tabs or hosts, and rerunPercent asks for a re-run share whose exact hashes the server compares; an admin may refuse rerunPercent, then the job runs without re-runs. options carries the admin-gated tamper evidence, upload check, peer sharing and dew receipt switches. Send Idempotency-Key to make submission safely repeatable."
+      parameters:
+        - {"$ref": "#/components/parameters/IdempotencyKey"}
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobCreateRequest"}}}}
+      responses:
+        "201": {"description": "Job accepted and queued.", "headers": {"Location": {"description": "URL of the created job.", "schema": {"type": "string", "format": "uri-reference"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Job"}}}}
+        "400": {"$ref": "#/components/responses/BadRequest"}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /jobs/{jobId}:
+    get:
+      tags: ["jobs"]
+      summary: "Fetch job state, progress and lint warnings."
+      parameters:
+        - {"$ref": "#/components/parameters/JobId"}
+      responses:
+        "200": {"description": "Job snapshot.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Job"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /jobs/{jobId}:cancel:
+    post:
+      tags: ["jobs"]
+      summary: "Cancel a queued or running job."
+      description: "Running tasks are asked to stop and results already produced stay retrievable. Cancellation is idempotent and never deletes the job."
+      parameters:
+        - {"$ref": "#/components/parameters/JobId"}
+      requestBody: {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CancelRequest"}}}}
+      responses:
+        "202": {"description": "Cancellation accepted.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Job"}}}}
+        "200": {"description": "Job was already in a terminal state.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Job"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /jobs/{jobId}/results:
+    get:
+      tags: ["results"]
+      summary: "Read task results in as_completed order."
+      description: "Results are returned in completion order, not submission order. Late results, meaning a task that finished after the job ended, are still served from the dead-letter store. Page with the opaque cursor; nextCursor stays valid while results are retained."
+      parameters:
+        - {"$ref": "#/components/parameters/JobId"}
+        - {"$ref": "#/components/parameters/Cursor"}
+        - {"name": "limit", "in": "query", "required": false, "description": "Maximum number of results per page.", "schema": {"type": "integer", "minimum": 1, "maximum": 1000, "default": 100}}
+        - {"name": "includeFailed", "in": "query", "required": false, "description": "Include failed task records.", "schema": {"type": "boolean", "default": true}}
+      responses:
+        "200": {"description": "One page of results.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ResultsPage"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /jobs/{jobId}/results:bulk:
+    get:
+      tags: ["results"]
+      summary: "Download all job results as one zstd-compressed tar archive."
+      description: "Bulk download is intended for job end; members are named by sha256 so results stay content-addressed. X-Artifact-Sha256 identifies the archive bytes themselves."
+      parameters:
+        - {"$ref": "#/components/parameters/JobId"}
+        - {"name": "format", "in": "query", "required": false, "description": "Export representation.", "schema": {"type": "string", "enum": ["ndjson", "json", "zstd-tar"], "default": "ndjson"}}
+        - {"$ref": "#/components/parameters/Cursor"}
+        - {"name": "limit", "in": "query", "required": false, "description": "Maximum records in this page.", "schema": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1000}}
+        - {"name": "includeFailed", "in": "query", "required": false, "description": "Include failed task records.", "schema": {"type": "boolean", "default": true}}
+        - {"name": "state", "in": "query", "required": false, "schema": {"type": "string", "enum": ["done", "failed"]}}
+        - {"name": "verified", "in": "query", "required": false, "schema": {"type": "boolean"}}
+      responses:
+        "200": {"description": "Requested results representation.", "headers": {"Content-Encoding": {"description": "zstd for zstd-tar format.", "schema": {"type": "string"}}, "X-Artifact-Sha256": {"description": "sha256 of the response bytes for zstd-tar.", "schema": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "Content-Length": {"schema": {"type": "integer", "minimum": 0}}, "ETag": {"schema": {"type": "string"}}, "X-Has-More": {"schema": {"type": "boolean"}}, "X-Next-Cursor": {"schema": {"type": "string"}}}, "content": {"application/zstd": {"schema": {"type": "string", "format": "binary"}}, "application/x-ndjson": {"schema": {"type": "string"}}, "application/json": {"schema": {"$ref": "#/components/schemas/ResultsPage"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /events:
+    get:
+      tags: ["events"]
+      summary: "Live server event stream over text/event-stream."
+      description: "SSE frames carry an event name and a JSON data payload: task.done (a task finished; small result inline, large result by URL), task.failed (a task exhausted its attempts; payload carries a problem), job.done (the job reached a terminal state), worker.lost (a worker tab vanished; its lease expires and tasks are reassigned), session.opened, session.ready, session.task.done, session.task.failed, session.closed for the process-pool session API. Resume a dropped connection with the Last-Event-ID header."
+      parameters:
+        - {"name": "jobIds", "in": "query", "required": false, "description": "Restrict the stream to these job ids.", "schema": {"type": "array", "items": {"type": "string"}}}
+        - {"name": "sessionIds", "in": "query", "required": false, "description": "Restrict the stream to these session ids.", "schema": {"type": "array", "items": {"type": "string"}}}
+        - {"name": "types", "in": "query", "required": false, "description": "Filter by event type.", "schema": {"type": "array", "items": {"type": "string", "enum": ["task.done", "task.failed", "job.done", "worker.lost", "session.opened", "session.ready", "session.task.done", "session.task.failed", "session.closed"]}}}
+        - {"name": "Last-Event-ID", "in": "header", "required": false, "description": "Resume the stream after this event id.", "schema": {"type": "string"}}
+      responses:
+        "200": {"description": "Event stream.", "content": {"text/event-stream": {"schema": {"oneOf": [{"$ref": "#/components/schemas/EventMessage"}, {"$ref": "#/components/schemas/SessionEventMessage"}]}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /jobs:validate:
+    post:
+      tags: ["jobs"]
+      summary: "Lint a job request without submitting it."
+      description: "Returns warnings[] rather than errors, for example a notice that tasks are too small for this device class and should be batched, plus quota and limit advisories, so callers can fix a request before submitting it."
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/JobCreateRequest"}}}}
+      responses:
+        "200": {"description": "Lint result.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/ValidationResult"}}}}
+        "400": {"$ref": "#/components/responses/BadRequest"}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /sessions:
+    post:
+      tags: ["sessions"]
+      summary: "Open a process-pool session that leases tabs and keeps them warm."
+      description: "A session is the process-pool unit of work: it leases tabCount tabs across hostCount tab hosts, optionally pins them, and keeps them warm between tasks. When warmInitializerArtifactId is given, that artifact is loaded and initialised in every leased tab before the session reports state open, so the first task pays no instantiation cost. Tasks are streamed later through POST /sessions/{sessionId}/tasks and the session is released with POST /sessions/{sessionId}:close. Sessions live in the one job id space and the one truth store; there is no shared memory and no MPI."
+      parameters:
+        - {"$ref": "#/components/parameters/IdempotencyKey"}
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionOpenRequest"}}}}
+      responses:
+        "201": {"description": "Session opened.", "headers": {"Location": {"description": "URL of the created session.", "schema": {"type": "string", "format": "uri-reference"}}}, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
+        "200": {"description": "Session exists already for this idempotency key.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
+        "400": {"$ref": "#/components/responses/BadRequest"}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /sessions/{sessionId}:
+    get:
+      tags: ["sessions"]
+      summary: "Fetch session state, leased tabs, warm state and progress."
+      parameters:
+        - {"$ref": "#/components/parameters/SessionId"}
+      responses:
+        "200": {"description": "Session snapshot.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /sessions/{sessionId}/tasks:
+    post:
+      tags: ["sessions"]
+      summary: "Stream tasks into an open session, in batches."
+      description: "Tasks are appended to the session and dispatched in batches; batchSize sets the tasks grouped per worker round trip and chunksize maps artifacts to per-task slices, with warnings[] when tasks are too small for the device class. The session keeps its tabs warm between batches, so a later batch pays no instantiation cost. Results are delivered exactly like job results: GET /jobs/{jobId}/results in as_completed order, SSE task.done, signed webhook and bulk download. Use groupBy to keep a group inside one tab and pin to bias placement. rerunPercent asks for a re-run share, which an admin may refuse. A closed session rejects new tasks with 409."
+      parameters:
+        - {"$ref": "#/components/parameters/SessionId"}
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionTasksRequest"}}}}
+      responses:
+        "202": {"description": "Task batch accepted for dispatch.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionTaskBatch"}}}}
+        "400": {"$ref": "#/components/responses/BadRequest"}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /sessions/{sessionId}:close:
+    post:
+      tags: ["sessions"]
+      summary: "Close a session and return its tabs to the pool."
+      description: "Closing is idempotent. With drain true the running tasks finish first; the session then moves to state closed, the leased tabs return to the pool and results already produced stay retrievable."
+      parameters:
+        - {"$ref": "#/components/parameters/SessionId"}
+      requestBody: {"required": false, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/SessionCloseRequest"}}}}
+      responses:
+        "202": {"description": "Close accepted; the session is draining.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
+        "200": {"description": "Session was already closed or is closed now.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Session"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "404": {"$ref": "#/components/responses/NotFound"}
+        "409": {"$ref": "#/components/responses/Conflict"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+  /capabilities:
+    get:
+      tags: ["capabilities"]
+      summary: "Server limits, GPU support, session limits and per-key quotas."
+      responses:
+        "200": {"description": "Capability snapshot for this server and pool.", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Capabilities"}}}}
+        "401": {"$ref": "#/components/responses/Unauthorized"}
+        "429": {"$ref": "#/components/responses/TooManyRequests"}
+webhooks:
+  taskDone:
+    post:
+      summary: "Signed task.done callback to a developer server."
+      description: "The server POSTs each completed task to the subscribed developer URL. The signature covers the X-WWPP-Timestamp header plus a dot plus the raw body and is an HMAC-SHA256 over the subscription secret; verify it in constant time and reject stale timestamps. Non-2xx responses are retried with exponential backoff."
+      parameters:
+        - {"name": "X-WWPP-Signature", "in": "header", "required": true, "description": "Hex HMAC-SHA256 signature of timestamp and body.", "schema": {"type": "string"}}
+        - {"name": "X-WWPP-Timestamp", "in": "header", "required": true, "description": "Unix seconds when the delivery was signed.", "schema": {"type": "string"}}
+        - {"name": "X-WWPP-Delivery", "in": "header", "required": true, "description": "Unique delivery id for deduplication.", "schema": {"type": "string"}}
+        - {"name": "X-WWPP-Attempt", "in": "header", "required": true, "description": "One-based delivery attempt.", "schema": {"type": "integer", "minimum": 1, "maximum": 5}}
+      requestBody: {"required": true, "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WebhookPayload"}}}}
+      responses:
+        "200": {"description": "Callback accepted."}
+        "4XX": {"description": "Delivery rejected and the server retries it."}
+components:
+  securitySchemes:
+    bearerAuth: {"type": "http", "scheme": "bearer", "bearerFormat": "JWT", "description": "15-minute JWT obtained from POST /auth/token."}
+  parameters:
+    JobId: {"name": "jobId", "in": "path", "required": true, "description": "Job id in the form <serverId>.<poolId>.<jobId>.", "schema": {"type": "string"}}
+    ArtifactId: {"name": "artifactId", "in": "path", "required": true, "schema": {"type": "string"}}
+    ArtifactAction: {"name": "action", "in": "path", "required": true, "description": "<artifactId> or <artifactId>:rescan", "schema": {"type": "string"}}
+    CSRFToken: {"name": "X-CSRF-Token", "in": "header", "required": true, "description": "CSRF token for cookie-authenticated administrative writes.", "schema": {"type": "string"}}
+    SessionId: {"name": "sessionId", "in": "path", "required": true, "description": "Process-pool session id.", "schema": {"type": "string"}}
+    Cursor: {"name": "cursor", "in": "query", "required": false, "description": "Opaque pagination cursor over as_completed results.", "schema": {"type": "string"}}
+    IdempotencyKey: {"name": "Idempotency-Key", "in": "header", "required": false, "description": "Client key; resubmitting the same key returns the original job or session.", "schema": {"type": "string", "maxLength": 255}}
+  headers:
+    RetryAfter: {"description": "Seconds to wait before retrying, per RFC 9110.", "schema": {"type": "integer", "minimum": 1}}
+  responses:
+    BadRequest: {"description": "Malformed or invalid request.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    Unauthorized: {"description": "Missing, expired or invalid JWT.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    Forbidden: {"description": "Scope or permission denied.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    NotFound: {"description": "Resource does not exist.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    Conflict: {"description": "State conflict, such as an idempotency-key mismatch, a closed session or a job that is not cancellable.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    TooManyRequests: {"description": "Rate limit or quota exceeded; retry after the indicated delay.", "headers": {"Retry-After": {"$ref": "#/components/headers/RetryAfter"}}, "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+    InternalError: {"description": "Unexpected server error.", "content": {"application/problem+json": {"schema": {"$ref": "#/components/schemas/Problem"}}}}
+  schemas:
+    Problem: {"type": "object", "title": "RFC 9457 problem details", "description": "Error payload shared by REST, SSE and gRPC status details.", "required": ["type", "title", "status", "code", "traceId", "retryable"], "properties": {"type": {"type": "string", "format": "uri-reference", "default": "about:blank"}, "title": {"type": "string"}, "status": {"type": "integer", "minimum": 100, "maximum": 599}, "detail": {"type": "string"}, "instance": {"type": "string", "format": "uri-reference"}, "code": {"type": "string", "description": "Stable machine-readable code from one documented list shared by REST, SSE and gRPC."}, "traceId": {"type": "string"}, "retryable": {"type": "boolean"}}}
+    TokenRequest: {"type": "object", "required": ["apiKey"], "properties": {"apiKey": {"type": "string", "description": "Raw developer API key; shown once and stored hashed."}, "scopes": {"type": "array", "description": "Requested scopes, intersected with the key scopes.", "items": {"type": "string"}}}}
+    CreateKeyRequest: {"type": "object", "required": ["user", "scopes"], "properties": {"user": {"$ref": "#/components/schemas/AuthUser"}, "scopes": {"type": "array", "items": {"type": "string"}}}}
+    AuthUser: {"type": "object", "required": ["id", "accountStore", "roles"], "properties": {"id": {"type": "string"}, "accountStore": {"type": "string"}, "roles": {"type": "array", "items": {"type": "string"}}}}
+    ApiKey: {"type": "object", "required": ["apiKey", "keyId"], "properties": {"apiKey": {"type": "string"}, "keyId": {"type": "string"}, "user": {"$ref": "#/components/schemas/AuthUser"}}}
+    RevokeKeyResponse: {"type": "object", "required": ["keyId", "revoked"], "properties": {"keyId": {"type": "string", "description": "Hashed key id that was revoked."}, "revoked": {"type": "boolean", "const": true}}}
+    TokenResponse: {"type": "object", "required": ["accessToken", "tokenType", "expiresIn", "expiresAt"], "properties": {"accessToken": {"type": "string"}, "tokenType": {"type": "string", "const": "Bearer"}, "expiresIn": {"type": "integer", "description": "Token lifetime in seconds.", "default": 900}, "expiresAt": {"type": "string", "format": "date-time"}, "scopes": {"type": "array", "items": {"type": "string"}}, "serverId": {"type": "string", "description": "Server id component of a job id.", "example": "s1"}, "poolId": {"type": "string"}}}
+    ArtifactReferenceDelete: {"type": "object", "description": "The outcome of one artifact reference delete (T100).", "required": ["artifactId", "removed", "blobDeleted", "remainingReferences"], "properties": {"artifactId": {"type": "string", "description": "Artifact id the delete addressed."}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "removed": {"type": "boolean", "description": "True when the caller held a reference and it was removed."}, "blobDeleted": {"type": "boolean", "description": "True when no reference remained and the blob was deleted."}, "remainingReferences": {"type": "integer", "minimum": 0, "description": "References that remain after this delete."}}}
+    Artifact: {"type": "object", "required": ["artifactId", "sha256", "sizeBytes", "complete"], "properties": {"artifactId": {"type": "string", "description": "Artifact id, identical to the lowercase hex sha256."}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "sizeBytes": {"type": "integer", "minimum": 0}, "receivedBytes": {"type": "integer", "minimum": 0}, "nextOffset": {"type": "integer", "minimum": 0}, "complete": {"type": "boolean"}, "contentType": {"type": "string"}, "createdAt": {"type": "string", "format": "date-time"}, "expiresAt": {"type": "string", "format": "date-time"}}}
+    TaskSpec: {"type": "object", "required": ["taskId"], "properties": {"taskId": {"type": "string"}, "input": {"type": "object", "description": "Inline input below 256 KiB, or a reference to a stored artifact.", "properties": {"inline": {"type": "string", "contentEncoding": "base64"}, "json": {"type": "object", "additionalProperties": true}, "artifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}, "timeoutMs": {"type": "integer", "minimum": 1}}}
+    SplitSpec: {"type": "object", "required": ["artifactId", "count"], "properties": {"artifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "count": {"type": "integer", "minimum": 1, "maximum": 10000, "description": "Number of nonempty tasks derived from the artifact; must match chunksize when supplied."}, "format": {"type": "string", "enum": ["bytes", "range", "rows", "records"], "default": "bytes", "description": "Implemented: bytes and range. Range artifacts contain integer start/end (end exclusive). rows/records remain unsupported."}, "chunksize": {"type": "integer", "minimum": 1, "description": "Slice size per task in bytes, or integer units for range; final slice may be shorter. Omit to balance count slices."}}}
+    WebhookConfig: {"type": "object", "required": ["url", "secret"], "properties": {"url": {"type": "string", "format": "uri"}, "secret": {"type": "string", "minLength": 16}, "events": {"type": "array", "items": {"type": "string", "enum": ["job.done", "job.failed"]}, "default": ["job.done", "job.failed"]}}}
+    JobChain: {"type": "object", "required": ["jobId", "mode", "head", "entries", "verification"], "properties": {"jobId": {"type": "string"}, "mode": {"type": "string"}, "head": {"type": "string"}, "entries": {"type": "array", "items": {"type": "object", "properties": {"seq": {"type": "integer"}, "jobId": {"type": "string"}, "taskId": {"type": "string"}, "resultIndex": {"type": "integer"}, "resultSha256": {"type": "string"}, "workerId": {"type": "string"}, "at": {"type": "string", "format": "date-time"}, "prev": {"type": "string"}, "hash": {"type": "string"}}}}, "verification": {"type": "object", "properties": {"jobId": {"type": "string"}, "valid": {"type": "boolean"}, "mode": {"type": "string"}, "entries": {"type": "integer"}, "head": {"type": "string"}, "reason": {"type": "string"}, "brokenAt": {"type": "integer"}}}}}
+    MerkleCheckpoints: {"type": "object", "properties": {"latestRoot": {"type": "string"}, "checkpoints": {"type": "array", "items": {"type": "object", "properties": {"seq": {"type": "integer"}, "at": {"type": "string", "format": "date-time"}, "root": {"type": "string"}, "prevRoot": {"type": "string"}, "prevHash": {"type": "string"}, "hash": {"type": "string"}, "jobCount": {"type": "integer"}, "leaves": {"type": "array", "items": {"type": "object", "properties": {"jobId": {"type": "string"}, "tip": {"type": "string"}}}}}}}, "verifications": {"type": "array", "items": {"type": "object", "properties": {"seq": {"type": "integer"}, "valid": {"type": "boolean"}, "root": {"type": "string"}, "recomputedRoot": {"type": "string"}, "jobCount": {"type": "integer"}, "reason": {"type": "string"}}}}}}
+    JobCreateRequest: {"type": "object", "required": ["moduleArtifactIds"], "properties": {"moduleArtifactIds": {"type": "array", "minItems": 1, "description": "sha256 artifact ids of the module code, WASM or JS, that workers must run.", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "moduleSha256": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Convenience alias for a single module artifact."}, "tasks": {"type": "array", "description": "Inline task list, mutually exclusive with split.", "items": {"$ref": "#/components/schemas/TaskSpec"}}, "split": {"$ref": "#/components/schemas/SplitSpec"}, "batchSize": {"type": "integer", "minimum": 1, "maximum": 10000, "default": 1, "description": "Tasks grouped per worker round trip and slot. Assignment.batch contains every signed member; submit results per member."}, "chunksize": {"type": "object", "description": "For split only: map the split artifact id to its slice size (must agree with split.chunksize). Other entries and inline-task chunk maps are unsupported.", "additionalProperties": {"type": "integer", "minimum": 1}}, "needs": {"type": "string", "enum": ["cpu", "gpu", "gpu-preferred"], "default": "cpu", "description": "GPU tasks are scheduled only to GPU-capable tabs."}, "policy": {"type": "string", "enum": ["partial", "fail-fast", "threshold"], "default": "partial", "description": "partial keeps going, fail-fast stops at the first failure, threshold stops above a failure ratio."}, "threshold": {"type": "number", "minimum": 0, "maximum": 1, "description": "Failure ratio that trips the threshold policy."}, "maxAttempts": {"type": "integer", "minimum": 1, "maximum": 10, "default": 3, "description": "Attempts per task before quarantine."}, "priority": {"type": "string", "enum": ["low", "normal", "high"], "default": "normal", "description": "Priority class; high is honoured only when the admin allows it."}, "groupBy": {"$ref": "#/components/schemas/GroupBy"}, "pin": {"$ref": "#/components/schemas/Pin"}, "rerunPercent": {"type": "number", "minimum": 0, "maximum": 100, "default": 1, "description": "Share of tasks in percent that the server re-sends to other workers and compares by exact hash; an admin may refuse, then the job runs without re-runs (R35.1)."}, "options": {"type": "object", "properties": {"taskTimeoutMs": {"type": "integer", "minimum": 1}, "maxTaskBytes": {"type": "integer", "minimum": 1}, "tags": {"type": "array", "items": {"type": "string"}}, "toleranceCompare": {"type": "boolean", "description": "Use a developer comparator on a worker instead of exact hash equality."}, "comparatorArtifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "tamperEvidence": {"$ref": "#/components/schemas/TamperEvidenceOption"}, "uploadChecks": {"$ref": "#/components/schemas/UploadCheckOption"}, "p2p": {"$ref": "#/components/schemas/P2POptions"}, "dew": {"$ref": "#/components/schemas/DewOptions"}}}, "metadata": {"type": "object", "additionalProperties": true}, "webhook": {"$ref": "#/components/schemas/WebhookConfig"}}}
+    Job: {"type": "object", "required": ["jobId", "state", "createdAt", "needs", "policy", "progress"], "properties": {"jobId": {"type": "string", "description": "Job id in the form <serverId>.<poolId>.<jobId>."}, "serverId": {"type": "string", "example": "s1"}, "poolId": {"type": "string"}, "state": {"type": "string", "enum": ["queued", "running", "completed", "failed", "partial", "cancelled"]}, "createdAt": {"type": "string", "format": "date-time"}, "startedAt": {"type": "string", "format": "date-time"}, "finishedAt": {"type": "string", "format": "date-time"}, "needs": {"type": "string", "enum": ["cpu", "gpu", "gpu-preferred"]}, "policy": {"type": "string", "enum": ["partial", "fail-fast", "threshold"]}, "maxAttempts": {"type": "integer"}, "priority": {"type": "string", "enum": ["low", "normal", "high"]}, "sessionId": {"type": "string", "description": "Process-pool session that owns this job, when it was opened through the session API."}, "groupBy": {"$ref": "#/components/schemas/GroupBy"}, "pin": {"$ref": "#/components/schemas/Pin"}, "rerunPercent": {"type": "number", "minimum": 0, "maximum": 100, "description": "Re-run share actually applied; lower than requested when the admin refused or trimmed it."}, "progress": {"type": "object", "required": ["total", "completed", "failed", "queued", "running"], "properties": {"total": {"type": "integer"}, "completed": {"type": "integer"}, "failed": {"type": "integer"}, "queued": {"type": "integer"}, "running": {"type": "integer"}}}, "warnings": {"type": "array", "items": {"$ref": "#/components/schemas/Warning"}}, "resultCursor": {"type": "string"}, "configVersion": {"type": "string"}, "chosenPolicy": {"type": "object", "additionalProperties": true}, "chainMode": {"type": "string"}, "chainHead": {"type": "string"}, "chainEntries": {"type": "integer"}, "auditGap": {"type": "boolean"}}}
+    TaskResult: {"type": "object", "required": ["jobId", "taskId", "status"], "properties": {"jobId": {"type": "string"}, "taskId": {"type": "string"}, "status": {"type": "string", "enum": ["done", "failed"]}, "attempts": {"type": "integer"}, "durationMs": {"type": "integer"}, "output": {"type": "object", "description": "Small result inline, large result by URL or artifact id.", "properties": {"inline": {"type": "string", "contentEncoding": "base64"}, "json": {"type": "object", "additionalProperties": true}, "url": {"type": "string", "format": "uri"}, "artifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}}, "error": {"$ref": "#/components/schemas/Problem"}, "completedAt": {"type": "string", "format": "date-time"}, "late": {"type": "boolean", "description": "True when the result arrived after job end, in the dead-letter store."}, "leaseReceipt": {"$ref": "#/components/schemas/LeaseReceipt"}, "verification": {"type": "object", "description": "Re-run check outcome; the server compares exact hashes only and never runs developer code.", "properties": {"rerun": {"type": "boolean"}, "hashMatch": {"type": "boolean"}, "toleranceMatch": {"type": "boolean"}, "canaryRan": {"type": "boolean"}, "canaryState": {"type": "string"}, "canaryOk": {"type": "boolean"}, "trustComplete": {"type": "boolean"}, "rerunOk": {"type": "boolean"}, "flagged": {"type": "boolean"}, "flagReason": {"type": "string"}}}}}
+    WebhookPayload: {"type": "object", "required": ["event", "deliveryId", "jobId", "poolId", "state", "at", "progress"], "properties": {"event": {"type": "string", "enum": ["job.done", "job.failed"]}, "deliveryId": {"type": "string"}, "jobId": {"type": "string"}, "poolId": {"type": "string"}, "state": {"type": "string"}, "at": {"type": "string", "format": "date-time"}, "progress": {"type": "object", "additionalProperties": true}, "resultsUrl": {"type": "string", "format": "uri-reference"}, "bulkUrl": {"type": "string", "format": "uri-reference"}}}
+    ResultsPage: {"type": "object", "required": ["items", "order"], "properties": {"order": {"type": "string", "const": "as_completed"}, "items": {"type": "array", "items": {"$ref": "#/components/schemas/TaskResult"}}, "nextCursor": {"type": "string"}, "hasMore": {"type": "boolean"}, "chainHead": {"type": "string"}, "chainEntries": {"type": "integer"}, "auditGap": {"type": "boolean"}}}
+    EventMessage: {"type": "object", "required": ["type", "jobId", "at"], "properties": {"type": {"type": "string", "enum": ["task.done", "task.failed", "job.done", "worker.lost", "reauth"]}, "jobId": {"type": "string"}, "sessionId": {"type": "string"}, "taskId": {"type": "string"}, "workerId": {"type": "string"}, "eventId": {"type": "string"}, "leaseReceipt": {"$ref": "#/components/schemas/LeaseReceipt"}, "at": {"type": "string", "format": "date-time"}, "result": {"$ref": "#/components/schemas/TaskResult"}, "error": {"$ref": "#/components/schemas/Problem"}, "job": {"$ref": "#/components/schemas/Job"}}}
+    SessionEventMessage: {"type": "object", "required": ["type", "sessionId", "at"], "properties": {"type": {"type": "string", "enum": ["session.opened", "session.ready", "session.task.done", "session.task.failed", "session.closed"]}, "sessionId": {"type": "string"}, "jobId": {"type": "string"}, "taskId": {"type": "string"}, "tabId": {"type": "string"}, "workerId": {"type": "string"}, "at": {"type": "string", "format": "date-time"}, "result": {"$ref": "#/components/schemas/TaskResult"}, "error": {"$ref": "#/components/schemas/Problem"}, "session": {"$ref": "#/components/schemas/Session"}, "leaseReceipt": {"$ref": "#/components/schemas/LeaseReceipt"}}}
+    Warning: {"type": "object", "required": ["code", "message"], "properties": {"code": {"type": "string", "example": "tasks-too-small"}, "severity": {"type": "string", "enum": ["info", "warning", "error"], "default": "warning"}, "message": {"type": "string"}, "path": {"type": "string"}, "hint": {"type": "string"}}}
+    ValidationResult: {"type": "object", "required": ["valid", "warnings"], "properties": {"valid": {"type": "boolean"}, "warnings": {"type": "array", "items": {"$ref": "#/components/schemas/Warning"}}, "estimatedTasks": {"type": "integer"}, "deviceClasses": {"type": "array", "items": {"type": "string"}}}}
+    CancelRequest: {"type": "object", "properties": {"reason": {"type": "string"}, "graceMs": {"type": "integer", "minimum": 0}}}
+    Capabilities: {"type": "object", "required": ["serverId", "poolId", "serverLimits", "gpu", "quotas"], "properties": {"serverId": {"type": "string", "example": "s1"}, "poolId": {"type": "string"}, "apiVersion": {"type": "string"}, "serverLimits": {"type": "object", "properties": {"maxTasksPerJob": {"type": "integer"}, "maxInlineBytes": {"type": "integer", "description": "Inline payload ceiling; 262144 bytes equals 256 KiB."}, "maxBatchSize": {"type": "integer"}, "maxTaskBytes": {"type": "integer"}, "maxTaskDurationMs": {"type": "integer"}, "maxArtifactBytes": {"type": "integer"}, "defaultBatchSize": {"type": "object", "description": "Server default batch size per device class.", "additionalProperties": {"type": "integer", "minimum": 1}}}}, "gpu": {"type": "object", "description": "GPU is a worker capability; there is no separate GPU pool.", "properties": {"supported": {"type": "boolean"}, "webgpuRequired": {"type": "boolean", "default": true}, "adapter": {"type": "string"}, "limits": {"type": "object", "additionalProperties": true}, "taskTimeoutMs": {"type": "integer"}, "memoryLimitBytes": {"type": "integer"}}}, "quotas": {"type": "object", "description": "Per-API-key quotas; exceeding one yields 429 with Retry-After.", "properties": {"runningJobs": {"type": "integer"}, "queuedTasks": {"type": "integer"}, "requestsPerMinute": {"type": "integer"}, "taskBytes": {"type": "integer"}, "taskTimeMs": {"type": "integer"}, "priorityHighAllowed": {"type": "boolean"}}}, "webhooks": {"type": "object", "properties": {"enabled": {"type": "boolean"}, "allowPrivateIPs": {"type": "boolean"}}}, "priorityClasses": {"type": "array", "items": {"type": "string", "enum": ["low", "normal", "high"]}}, "sessions": {"type": "object", "description": "Process-pool session limits and warm-initializer support.", "properties": {"supported": {"type": "boolean"}, "maxTabsPerSession": {"type": "integer"}, "maxHostsPerSession": {"type": "integer"}, "maxSessionTtlSeconds": {"type": "integer"}, "warmInitializerSupported": {"type": "boolean"}, "warmTimeoutMs": {"type": "integer"}}}, "rerun": {"type": "object", "description": "Re-run option state; the developer may only request it (R35.1).", "properties": {"available": {"type": "boolean"}, "defaultPercent": {"type": "number", "minimum": 0, "maximum": 100}, "maxPercent": {"type": "number", "minimum": 0, "maximum": 100}, "toleranceCompareAvailable": {"type": "boolean"}}}, "tamperEvidence": {"type": "object", "description": "Tamper evidence options; admin-off means unavailable (R35.2).", "properties": {"securityLogEnabled": {"type": "boolean"}, "perJobChainAvailable": {"type": "boolean"}, "merkleAvailable": {"type": "boolean"}}}, "uploadChecks": {"type": "object", "description": "Upload checks on developer code; all optional and admin-configurable (R36.1).", "properties": {"formatSizeHash": {"type": "boolean"}, "reviewGate": {"type": "boolean"}, "malwareAbuseScan": {"type": "boolean"}}}, "p2p": {"type": "object", "description": "Peer sharing is hash-addressed only; results always go to the server (R36.2).", "properties": {"enabled": {"type": "boolean"}, "shareMode": {"type": "string", "const": "hash-addressed-only"}, "resultsToServer": {"type": "boolean", "const": true}}}, "dew": {"type": "object", "description": "dew signed lease receipts (R36.2).", "properties": {"enabled": {"type": "boolean", "default": true}, "receiptWindowSeconds": {"type": "integer", "minimum": 3600, "maximum": 604800, "default": 86400}, "receiptAlgorithm": {"type": "string", "default": "ed25519"}}}}}
+    GroupBy: {"type": "object", "description": "Keep a group of tasks inside one process, that is one tab or one tab host.", "required": ["mode"], "properties": {"mode": {"type": "string", "enum": ["none", "tab", "host"], "default": "none"}, "key": {"type": "string", "description": "Grouping key, usually a field of the task input."}, "maxGroups": {"type": "integer", "minimum": 1}}}
+    Pin: {"type": "object", "description": "Pin a job or session batch to a session, to tabs or to tab hosts.", "properties": {"sessionId": {"type": "string"}, "tabIds": {"type": "array", "items": {"type": "string"}}, "hostIds": {"type": "array", "items": {"type": "string"}}}}
+    TamperEvidenceOption: {"type": "object", "description": "Server-side tamper evidence request (R35.2); an admin may switch the option off, then it is unavailable.", "properties": {"mode": {"type": "string", "enum": ["none", "security-log", "per-job-chain", "per-run-chain", "merkle"], "default": "security-log"}, "chainPerJob": {"type": "boolean", "default": false}}}
+    UploadCheckOption: {"type": "object", "description": "Request for upload checks on developer code (R36.1); the admin decides which checks run.", "properties": {"mode": {"type": "string", "enum": ["none", "format-size-hash", "import-permission-scan", "review-gate", "malware-abuse-scan", "all"], "default": "none"}, "requireReview": {"type": "boolean", "default": false}}}
+    P2POptions: {"type": "object", "description": "Peer-to-peer sharing request (R36.2); hash-addressed sharing only and results always go to the server.", "properties": {"enabled": {"type": "boolean", "default": true, "description": "WWPP-R36.2-RES: ON until tested"}, "peers": {"type": "array", "items": {"type": "string"}}, "shareMode": {"type": "string", "enum": ["hash-addressed-only"], "default": "hash-addressed-only"}, "resultsToServer": {"type": "boolean", "default": true}}}
+    DewOptions: {"type": "object", "description": "dew signed lease receipt request (R36.2); dew is on by default with a 24 h receipt window.", "properties": {"enabled": {"type": "boolean", "default": true}, "receiptWindowSeconds": {"type": "integer", "minimum": 3600, "maximum": 604800, "default": 86400}}}
+    LeaseReceipt: {"type": "object", "description": "dew signed lease receipt covering the leased tasks and their input hashes (R36.2).", "required": ["receiptId", "taskIds", "inputHashes", "deadline", "issuedAt", "signature"], "properties": {"receiptId": {"type": "string"}, "taskIds": {"type": "array", "minItems": 1, "items": {"type": "string"}}, "inputHashes": {"type": "array", "minItems": 1, "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "deadline": {"type": "string", "format": "date-time"}, "issuedAt": {"type": "string", "format": "date-time"}, "windowSeconds": {"type": "integer", "minimum": 3600, "maximum": 604800, "default": 86400, "description": "24 h receipt window by default."}, "algorithm": {"type": "string", "default": "ed25519"}, "keyId": {"type": "string"}, "signature": {"type": "string", "description": "Base64 signature over the receipt fields."}}}
+    SessionOpenRequest: {"type": "object", "required": ["tabCount"], "properties": {"tabCount": {"type": "integer", "minimum": 1, "description": "Number of browser tabs to lease."}, "hostCount": {"type": "integer", "minimum": 1, "description": "Number of device/browser hosts to span (a host is one device/browser instance, a wwHost tab runs on it). Optional; default = tabCount (WWPP-R39.1, agy 12)."}, "pin": {"$ref": "#/components/schemas/Pin"}, "warmInitializerArtifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$", "description": "Artifact loaded and initialised in every leased tab before the session reports state open."}, "warmInitializerArgs": {"type": "object", "additionalProperties": true}, "warmTimeoutMs": {"type": "integer", "minimum": 1, "default": 60000}, "ttlSeconds": {"type": "integer", "minimum": 30, "default": 900, "description": "Session lease lifetime; on expiry the tabs return to the pool."}, "needs": {"type": "string", "enum": ["cpu", "gpu", "gpu-preferred"], "default": "cpu"}, "moduleArtifactIds": {"type": "array", "items": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "options": {"type": "object", "properties": {"dew": {"$ref": "#/components/schemas/DewOptions"}, "p2p": {"$ref": "#/components/schemas/P2POptions"}, "uploadChecks": {"$ref": "#/components/schemas/UploadCheckOption"}}}, "metadata": {"type": "object", "additionalProperties": true}}}
+    Session: {"type": "object", "required": ["sessionId", "state", "tabCount", "hostCount", "createdAt", "tabs", "progress"], "properties": {"sessionId": {"type": "string"}, "jobId": {"type": "string", "description": "Job id of the job that owns this session, when one was opened with it."}, "state": {"type": "string", "enum": ["opening", "open", "draining", "closed", "failed", "expired"]}, "tabCount": {"type": "integer", "minimum": 0}, "hostCount": {"type": "integer", "minimum": 0}, "pinned": {"type": "boolean"}, "pin": {"$ref": "#/components/schemas/Pin"}, "warmInitializerArtifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "warmState": {"type": "string", "enum": ["not-requested", "pending", "warming", "warm", "failed"]}, "tabs": {"type": "array", "items": {"$ref": "#/components/schemas/SessionTab"}}, "progress": {"type": "object", "required": ["total", "completed", "failed", "queued", "running"], "properties": {"total": {"type": "integer"}, "completed": {"type": "integer"}, "failed": {"type": "integer"}, "queued": {"type": "integer"}, "running": {"type": "integer"}}}, "warnings": {"type": "array", "items": {"$ref": "#/components/schemas/Warning"}}, "createdAt": {"type": "string", "format": "date-time"}, "expiresAt": {"type": "string", "format": "date-time"}, "closedAt": {"type": "string", "format": "date-time"}}}
+    SessionTab: {"type": "object", "required": ["tabId", "hostId", "state"], "properties": {"tabId": {"type": "string"}, "hostId": {"type": "string"}, "workerId": {"type": "string"}, "state": {"type": "string", "enum": ["warming", "ready", "busy", "draining", "closed", "lost"]}, "gpu": {"type": "object", "description": "GPU report of this tab; GPU is a capability, never a separate pool.", "properties": {"webgpu": {"type": "boolean"}, "adapter": {"type": "string"}, "limits": {"type": "object", "additionalProperties": true}}}, "slots": {"type": "integer", "minimum": 1, "description": "Concurrent task slots of this tab."}}}
+    SessionTasksRequest: {"type": "object", "required": ["tasks"], "properties": {"tasks": {"type": "array", "minItems": 1, "description": "Tasks to append to the session; dispatched in batches.", "items": {"$ref": "#/components/schemas/TaskSpec"}}, "batchSize": {"type": "integer", "minimum": 1, "description": "Tasks grouped per worker round trip (R34.1)."}, "chunksize": {"type": "object", "description": "Map of artifact id to per-task slice size in bytes (R34.1).", "additionalProperties": {"type": "integer", "minimum": 1}}, "needs": {"type": "string", "enum": ["cpu", "gpu", "gpu-preferred"], "default": "cpu"}, "policy": {"type": "string", "enum": ["partial", "fail-fast", "threshold"], "default": "partial"}, "threshold": {"type": "number", "minimum": 0, "maximum": 1}, "maxAttempts": {"type": "integer", "minimum": 1, "maximum": 10, "default": 3}, "priority": {"type": "string", "enum": ["low", "normal", "high"], "default": "normal"}, "groupBy": {"$ref": "#/components/schemas/GroupBy"}, "pin": {"$ref": "#/components/schemas/Pin"}, "rerunPercent": {"type": "number", "minimum": 0, "maximum": 100, "default": 1, "description": "Share of tasks in percent re-sent to other workers and compared by exact hash; an admin may refuse."}, "options": {"type": "object", "properties": {"taskTimeoutMs": {"type": "integer", "minimum": 1}, "maxTaskBytes": {"type": "integer", "minimum": 1}, "tags": {"type": "array", "items": {"type": "string"}}, "toleranceCompare": {"type": "boolean"}, "comparatorArtifactId": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "tamperEvidence": {"$ref": "#/components/schemas/TamperEvidenceOption"}, "dew": {"$ref": "#/components/schemas/DewOptions"}, "p2p": {"$ref": "#/components/schemas/P2POptions"}}}, "metadata": {"type": "object", "additionalProperties": true}}}
+    SessionTaskBatch: {"type": "object", "required": ["sessionId", "batchId", "acceptedTaskIds", "taskCount", "state", "acceptedAt"], "properties": {"sessionId": {"type": "string"}, "jobId": {"type": "string"}, "batchId": {"type": "string"}, "state": {"type": "string", "enum": ["accepted", "partially-accepted", "rejected"]}, "taskCount": {"type": "integer", "minimum": 0}, "acceptedTaskIds": {"type": "array", "items": {"type": "string"}}, "rejectedTaskIds": {"type": "array", "items": {"type": "string"}}, "warnings": {"type": "array", "items": {"$ref": "#/components/schemas/Warning"}}, "acceptedAt": {"type": "string", "format": "date-time"}}}
+    SessionCloseRequest: {"type": "object", "properties": {"reason": {"type": "string"}, "graceMs": {"type": "integer", "minimum": 0}, "drain": {"type": "boolean", "default": true, "description": "Let running tasks finish before the tabs are released."}}}

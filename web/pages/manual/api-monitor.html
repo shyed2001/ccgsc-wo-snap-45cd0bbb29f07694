@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <!-- WO-HC-WEB-01 manual/api-monitor.html - Full Reference Manual for api-monitor.html -->
+  <!-- Author: Claude Opus 5.5 head / agy Gemini 3.8 Flash high. Date: 2026-11-17 -->
+  <!-- Truth: F:/tmp/hcwork/ADMIN_MANUALS_SOURCE.md sec 3 (WWPP-R38.5b, WWPP-R40.3) -->
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Manual: API Monitor (Medium Tier)</title>
+  <link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+
+  <!-- Shared Navigation Bar Mount -->
+  <header id="ccgsc-nav" aria-label="Global CCGSC Navigation"></header>
+
+  <div class="container" style="padding-top: 24px;">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">
+          Manual: api-monitor.html
+          <span class="tier-badge tier-2">Tier 2 Reference</span>
+        </h1>
+        <p class="page-desc">
+          The medium monitor for the two pool APIs together: bigger error messages, dashboards and control options for traffic, keys, quotas and sessions.
+          Each card links to the matching section of the Thread Pool API admin page or the Process Pool API admin page (WWPP-R38.5b).
+        </p>
+      </div>
+      <div>
+        <a href="../api-monitor.html" class="btn btn-primary">&larr; Back to Live API Monitor</a>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h2 class="admin-section-title">Sections List</h2>
+      </div>
+      <div class="admin-section-body">
+        <p style="color: var(--text-muted); font-size: 0.9rem;">
+          <code>#traffic</code> Traffic &bull; <code>#errors</code> Error board &bull; <code>#keys</code> Key activity &bull; <code>#quotas</code> Quota usage &bull; <code>#sessions</code> Sessions &bull; <code>#system</code> Server and database &bull; <code>#control</code> Control options &bull; <code>#manual</code> Manual section.
+        </p>
+      </div>
+    </div>
+
+    <div class="admin-section">
+      <div class="admin-section-header">
+        <h2 class="admin-section-title">All 21 Metric & Setting Rows</h2>
+      </div>
+      <div class="admin-section-body table-responsive">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Label</th>
+              <th>Legend (Tooltip Text)</th>
+              <th>Type</th>
+              <th>Default</th>
+              <th>Range</th>
+              <th>Authority</th>
+              <th>WWPP ID</th>
+            </tr>
+          </thead>
+          <tbody id="manual-rows-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/nav/nav.js"></script>
+  <script type="module">
+    import { PAGE_SCHEMAS } from '../js/schema.js';
+    const schema = PAGE_SCHEMAS['api-monitor'];
+    const tbody = document.getElementById('manual-rows-tbody');
+    tbody.innerHTML = schema.rows.map(r => `
+      <tr>
+        <td><code>${r.id}</code></td>
+        <td><strong>${r.label}</strong></td>
+        <td>${r.legend}</td>
+        <td><span class="range-badge">${r.type}</span></td>
+        <td><code>${r.default}</code></td>
+        <td>${r.range}</td>
+        <td>${r.whoMayChange}</td>
+        <td><code>${r.wwppId}</code></td>
+      </tr>
+    `).join('');
+  </script>
+
+</body>
+</html>
+<!-- END OF manual/api-monitor.html -->
